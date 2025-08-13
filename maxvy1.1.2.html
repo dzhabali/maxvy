@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ваджрайогини — трекер (Google + Firestore)</title>
+<style>
+  :root{
+    --bg:#f8f9fa; --card:#ffffff; --line:#e5e7eb; --muted:#6b7280;
+    --head:#e9ecef; --accent:#198754; --accent2:#157347;
+    --slot-empty:#f1f3f5; --slot-current:#d8f5d0;
+  }
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .topbar{position:sticky;top:0;background:var(--card);padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #ccc;z-index:10}
+  .title{font-weight:700}
+  .spacer{flex:1}
+  .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
+  button{padding:6px 12px;border:none;background:var(--accent);color:#fff;border-radius:6px;cursor:pointer}
+  button:hover{background:var(--accent2)}
+  button[disabled]{opacity:.6;cursor:default}
+  input[type="date"]{padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;margin-top:10px}
+  th,td{border:1px solid var(--line);padding:6px;text-align:center}
+  th{background:var(--head);position:sticky;top:56px;z-index:5}
+  tr.empty-slot{background:var(--slot-empty)}
+  tr.current-slot{background:var(--slot-current)}
+  input[type="number"]{width:72px}
+  .stats{padding:12px;background:var(--card);border-top:1px solid #ccc;margin-top:10px}
+  .note{color:var(--muted);font-size:12px}
+  .warn{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:8px 10px;border-radius:8px}
+</style>
+
+<!-- ✅ ИСПРАВЛЕННЫЕ Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+
+<script>
+// 🔑 ВСТАВЬ СВОИ КЛЮЧИ ИЗ КОНСОЛИ FIREBASE:
+const firebaseConfig = {
+  apiKey: "AIzaSyAYeb4qPZSHAdDqMxneVYtdFsy-hsuSbVs",
+  authDomain: "vy-tracker.firebaseapp.com",
+  projectId: "vy-tracker",
+  storageBucket: "vy-tracker.firebasestorage.app",
+  messagingSenderId: "140906721201",
+  appId: "1:140906721201:web:c17603021a784fe5e01790",
+  measurementId: "G-Z4ZXW1N1WN"
+};
+// —— конец блока ключей ——
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// оффлайн-кэш Firestore (в приватном режиме Safari может не включиться — это ок)
+firebase.firestore().enablePersistence().catch(()=>{});
+
+// Helpers
+function slotTime(i){const h=String(Math.floor(i/4)).padStart(2,'0');const m=String((i%4)*15).padStart(2,'0');return `${h}:${m}`;}
+function emptyDay(){return Array.from({length:96},(_,i)=>({time:slotTime(i),vy:false,vyAround:false,sleep:false,count:0}))}
+function dayDocRef(uid,dateStr){return db.collection('users').doc(uid).collection('days').doc(dateStr)}
+
+// Попытка pop‑up → если заблокирован, fallback на redirect (удобно для file:// и Safari)
+async function googleSignInSmart() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await auth.signInWithPopup(provider);
+  } catch (e) {
+    try {
+      await auth.signInWithRedirect(provider);
+    } catch (e2) {
+      alert('Не удалось открыть окно входа. Разреши всплывающие окна или открой файл по HTTPS/localhost.');
+      console.error(e, e2);
+    }
+  }
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="title">Ваджрайогини — трекер</span>
+  <input type="date" id="datePicker" />
+  <button id="markSleep">Отметить всё до текущего времени как сон</button>
+  <div class="spacer"></div>
+  <span id="authState" class="badge">не вошла</span>
+  <span id="userInfo" class="note"></span>
+  <button id="login">Войти через Google</button>
+  <button id="logout" style="display:none;">Выйти</button>
+  <button id="exportDay" disabled>Экспорт дня</button>
+  <button id="exportAll" disabled>Экспорт всей истории</button>
+</div>
+
+<div id="envWarning" class="warn" style="display:none; margin:10px;">
+  Ты открыла файл как <code>file://</code>. В Safari попапы могут блокироваться — вход выполнится через редирект. 
+  Для идеальной работы открой через <b>http://localhost</b> или выложи на GitHub Pages.
+</div>
+
+<div id="tableContainer"></div>
+<div class="stats" id="stats"></div>
+
+<script>
+const datePicker     = document.getElementById('datePicker');
+const tableContainer = document.getElementById('tableContainer');
+const statsDiv       = document.getElementById('stats');
+const btnSleep       = document.getElementById('markSleep');
+const btnExportDay   = document.getElementById('exportDay');
+const btnExportAll   = document.getElementById('exportAll');
+const btnLogin       = document.getElementById('login');
+const btnLogout      = document.getElementById('logout');
+const authState      = document.getElementById('authState');
+const userInfo       = document.getElementById('userInfo');
+const envWarning     = document.getElementById('envWarning');
+
+if (location.protocol === 'file:') envWarning.style.display = '';
+
+datePicker.valueAsDate = new Date();
+
+let uid = null;
+let unsubDay = null;
+let dayCache = null;
+
+// ——— Auth ———
+btnLogin.onclick  = () => googleSignInSmart();
+btnLogout.onclick = async () => { if (unsubDay){unsubDay();unsubDay=null} await auth.signOut(); };
+
+auth.onAuthStateChanged(user=>{
+  if (user){
+    uid = user.uid;
+    authState.textContent = 'в сети';
+    userInfo.textContent  = user.displayName ? ` · ${user.displayName}` : '';
+    btnLogin.style.display='none'; btnLogout.style.display='';
+    btnExportDay.disabled=false; btnExportAll.disabled=false;
+    attachDayListener(datePicker.value);
+  } else {
+    uid = null;
+    authState.textContent = 'не вошла';
+    userInfo.textContent  = '';
+    btnLogin.style.display=''; btnLogout.style.display='none';
+    btnExportDay.disabled=true; btnExportAll.disabled=true;
+    if (unsubDay){unsubDay();unsubDay=null}
+    dayCache=null; renderTable();
+  }
+});
+
+// ——— Day subscription ———
+function attachDayListener(dateStr){
+  if (!uid) return;
+  if (unsubDay){unsubDay();unsubDay=null}
+  unsubDay = dayDocRef(uid,dateStr).onSnapshot(async snap=>{
+    if (snap.exists){ dayCache = snap.data().slots || emptyDay(); }
+    else{
+      const slots = emptyDay();
+      await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+      dayCache = slots;
+    }
+    renderTable();
+  }, err=>console.error(err));
+}
+
+// ——— Render ———
+function renderTable(){
+  const dateStr = datePicker.value;
+  const now = new Date();
+  const isToday = dateStr === now.toISOString().slice(0,10);
+  const currentSlot = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : -1;
+  const slots = dayCache || emptyDay();
+
+  let html = '<table><thead><tr><th>Время</th><th>Чувствовала ВЙ</th><th>Видела ВЙ</th><th>Сон</th><th>Сколько раз вспоминала</th></tr></thead><tbody>';
+  slots.forEach((s,idx)=>{
+    const empty = !s.vy && !s.vyAround && !s.sleep && !s.count;
+    const cls = `${empty?'empty-slot':''} ${idx===currentSlot?'current-slot':''}`.trim();
+    html += `<tr class="${cls}">
+      <td>${s.time}</td>
+      <td><input type="checkbox" data-idx="${idx}" data-field="vy" ${s.vy?'checked':''}></td>
+      <td><input type="checkbox" data-idx="${idx}" data-field="vyAround" ${s.vyAround?'checked':''}></td>
+      <td><input type="checkbox" data-idx="${idx}" data-field="sleep" ${s.sleep?'checked':''}></td>
+      <td><input type="number" min="0" data-idx="${idx}" data-field="count" value="${s.count}"></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  tableContainer.innerHTML = html;
+
+  if (currentSlot>=0 && !renderTable._scrolled){
+    const row = tableContainer.querySelectorAll('tr')[currentSlot+1];
+    if (row){ row.scrollIntoView({behavior:'smooth',block:'center'}); renderTable._scrolled = true; }
+  }
+  updateStats();
+}
+
+tableContainer.addEventListener('change', async (e)=>{
+  const idx = e.target.dataset.idx, field = e.target.dataset.field;
+  if (idx===undefined || !uid) return;
+  const dateStr = datePicker.value;
+  const slots = (dayCache || emptyDay()).slice();
+  if (field==='count'){ slots[idx][field] = Number(e.target.value)||0; }
+  else { slots[idx][field] = e.target.checked; }
+  dayCache = slots; renderTable();
+  try{
+    await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
+  }catch(err){ console.error(err); }
+});
+
+btnSleep.addEventListener('click', async ()=>{
+  if (!uid) return;
+  const dateStr = datePicker.value;
+  const slots = (dayCache || emptyDay()).slice();
+  const now = new Date();
+  const isToday = dateStr === now.toISOString().slice(0,10);
+  const limit = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : slots.length;
+  for (let i=0;i<limit;i++) slots[i].sleep = true;
+  dayCache = slots; renderTable();
+  await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
+});
+
+function updateStats(){
+  const slots = dayCache || emptyDay();
+  const total = slots.length;
+  const vy = slots.filter(s=>s.vy).length;
+  const va = slots.filter(s=>s.vyAround).length;
+  const sl = slots.filter(s=>s.sleep).length;
+  const sum = slots.reduce((a,s)=>a+(Number(s.count)||0),0);
+  statsDiv.innerHTML = `
+    Чувствовала ВЙ: ${vy} слотов (${Math.round(vy/total*100)}%)<br>
+    Видела ВЙ: ${va} слотов (${Math.round(va/total*100)}%)<br>
+    Сон: ${sl} слотов (${Math.round(sl/total*100)}%)<br>
+    Сумма «Сколько раз вспоминала»: ${sum}
+  `;
+}
+
+datePicker.addEventListener('change', ()=>{
+  renderTable._scrolled = false;
+  if (uid) attachDayListener(datePicker.value); else renderTable();
+});
+
+// Экспорт
+document.getElementById('exportDay').addEventListener('click', async ()=>{
+  if (!uid) return;
+  const dateStr = datePicker.value;
+  const snap = await dayDocRef(uid,dateStr).get();
+  const slots = snap.exists ? (snap.data().slots||[]) : [];
+  exportCSV({[dateStr]:slots}, `vajrayogini_${dateStr}.csv`);
+});
+document.getElementById('exportAll').addEventListener('click', async ()=>{
+  if (!uid) return;
+  const snap = await db.collection('users').doc(uid).collection('days').get();
+  const obj={}; snap.forEach(d=>obj[d.id]=d.data().slots||[]);
+  exportCSV(obj, `vajrayogini_all.csv`);
+});
+function exportCSV(obj,filename){
+  const rows=[['Дата','Время','Чувствовала ВЙ','Видела ВЙ','Сон','Сколько раз вспоминала']];
+  for (const [date,slots] of Object.entries(obj)){
+    (slots||[]).forEach(s=>rows.push([date,s.time,s.vy?'Да':'Нет',s.vyAround?'Да':'Нет',s.sleep?'Да':'Нет',s.count??0]));
+  }
+  const csv = rows.map(r=>r.join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+}
+
+// Первый рендер
+renderTable();
+</script>
+
+</body>
+</html>
