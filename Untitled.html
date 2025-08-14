@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Виджет Ваджрайогини — учёт вспоминаний (Festive v8)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#fff; color:#111; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 16px 20px 32px; }
+    .row { display:grid; gap:16px; grid-template-columns: 1fr; }
+    @media (min-width: 860px){ .row-3 { grid-template-columns: 1fr 2fr; } }
+    .card { border:1px solid #e5e7eb; border-radius:16px; padding:16px; background:#fff; }
+    .btn { border-radius:14px; border:1px solid #ddd; background:#f9fafb; padding:10px 14px; cursor:pointer; font-size:14px; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .btn-secondary { background:#3b82f6; color:#fff; border-color:#3b82f6; }
+    .btn-big { font-size:22px; padding:22px 28px; border-radius:18px; }
+    .muted { color:#6b7280; }
+    .tag { display:inline-block; padding:6px 10px; border-radius:12px; background:#f3f4f6; border:1px solid #e5e7eb; }
+    .grid-mini { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; }
+    @media (min-width: 860px){ .grid-mini{ grid-template-columns: repeat(4,minmax(0,1fr)); } }
+    h1 { margin:0 0 4px; font-size: 24px; }
+    h2 { margin:0 0 8px; font-size: 14px; }
+    .toolbar { display:flex; flex-wrap: wrap; gap:8px; align-items:center; }
+    .big { font-size: 36px; font-weight: 700; }
+    .split { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .legend { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+    .red { background:#ef4444; } .blue { background:#3b82f6; }
+    footer { color:#6b7280; font-size:12px; margin-top: 8px; }
+    .spacer { height: 12px; }
+    svg { width: 100%; height: 240px; }
+    #confettiCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 9999; }
+    .toggle { display:flex; align-items:center; gap:6px; }
+  </style>
+</head>
+<body>
+  <canvas id="confettiCanvas"></canvas>
+  <div class="container">
+    <header class="card" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; justify-content:space-between">
+      <div>
+        <h1>Виджет Ваджрайогини · учёт вспоминаний (Festive v8)</h1>
+        <div class="muted" id="todayLine"></div>
+      </div>
+      <div class="toolbar">
+        <button class="btn btn-primary btn-big" id="tapSelf">я ВЙ! ✨</button>
+        <button class="btn btn-secondary btn-big" id="tapSeen">вижу ВЙ! 👁️✨</button>
+        <button class="btn" id="manualBtn">Добавить время…</button>
+        <button class="btn" id="undoBtn">Отменить последнее нажатие</button>
+        <button class="btn" id="exportBtn">Экспорт CSV</button>
+        <button class="btn" id="clearBtn">Очистить всё</button>
+        <label class="toggle">
+          <input type="checkbox" id="quietToggle"/>
+          <span>Тихий режим 🔕</span>
+        </label>
+      </div>
+    </header>
+
+    <div class="spacer"></div>
+
+    <section class="row row-3">
+      <div class="card">
+        <h2>Количество вспоминаний сегодня</h2>
+        <div class="split">
+          <div>
+            <div class="legend"><span class="dot red"></span><strong>я ВЙ сегодня</strong></div>
+            <div class="big" id="countSelf">0</div>
+          </div>
+          <div>
+            <div class="legend"><span class="dot blue"></span><strong>видела ВЙ</strong></div>
+            <div class="big" id="countSeen">0</div>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:8px">Нажимай нужную кнопку — и мир празднует с тобой 🎉</div>
+      </div>
+
+      <div class="card">
+        <div class="legend" style="margin-bottom:6px">
+          <span class="dot red"></span><span class="muted">я ВЙ</span>
+          <span class="dot blue"></span><span class="muted">вижу ВЙ</span>
+        </div>
+        <h2>Сегодняшний день: отметки на таймлайне</h2>
+        <svg id="svgTimeline" viewBox="0 0 800 200" preserveAspectRatio="none"></svg>
+        <div class="muted" id="noToday" style="margin-top:8px; display:none">Пока нет отметок за сегодня</div>
+      </div>
+    </section>
+
+    <div class="spacer"></div>
+
+    <section class="card">
+      <div class="legend" style="margin-bottom:6px">
+        <span class="dot red"></span><span class="muted">я ВЙ</span>
+        <span class="dot blue"></span><span class="muted">вижу ВЙ</span>
+      </div>
+      <h2>Количество вспоминаний по дням (последние 7 дней)</h2>
+      <svg id="svgBars" viewBox="0 0 800 260" preserveAspectRatio="none"></svg>
+    </section>
+
+    <div class="spacer"></div>
+
+    <section class="card">
+      <div class="legend" style="margin-bottom:6px">
+        <span class="dot red"></span><span class="muted">я ВЙ</span>
+        <span class="dot blue"></span><span class="muted">вижу ВЙ</span>
+      </div>
+      <h2>Когда в сутках ты чаще всего вспоминаешь (агрегировано за все дни)</h2>
+      <svg id="svgAllDay" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
+    </section>
+
+    <div class="spacer"></div>
+
+    <section class="card">
+      <h2>Лента сегодняшних вспоминаний</h2>
+      <div class="grid-mini" id="listToday"></div>
+    </section>
+
+    <footer>Данные хранятся локально в браузере. Версия без библиотек, офлайн. С любовью и пайетками ✨</footer>
+  </div>
+
+  <script>
+    const KEY = "vajra-taps-v2";
+    const QUIET_KEY = "vajra-quiet";
+    const $ = (id) => document.getElementById(id);
+    const fmtDate = new Intl.DateTimeFormat('ru-RU', { dateStyle: "medium" });
+    const fmtTime = new Intl.DateTimeFormat('ru-RU', { hour: "2-digit", minute: "2-digit" });
+    const weekday = new Intl.DateTimeFormat('ru-RU', { weekday: 'short' });
+
+    function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+    function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+
+    function fmtDayLabel(date){
+      const dd = String(date.getDate()).padStart(2,'0');
+      const mm = String(date.getMonth()+1).padStart(2,'0');
+      return `${dd}.${mm} (${weekday.format(date)})`;
+    }
+
+    function migrate(){
+      const v2 = localStorage.getItem(KEY);
+      if (v2) return JSON.parse(v2);
+      const old = localStorage.getItem("vajra-taps-v1");
+      if (old){
+        try{
+          const parsed = JSON.parse(old);
+          const mapped = parsed.map(ts => ({ t: ts, type: "self" }));
+          localStorage.setItem(KEY, JSON.stringify(mapped));
+          return mapped;
+        } catch {}
+      }
+      return [];
+    }
+
+    function save(events){ localStorage.setItem(KEY, JSON.stringify(events)); }
+    let events = migrate();
+
+    const quietToggle = $("quietToggle");
+    quietToggle.checked = localStorage.getItem(QUIET_KEY) === "true";
+    quietToggle.addEventListener("change", ()=>{
+      localStorage.setItem(QUIET_KEY, quietToggle.checked ? "true" : "false");
+    });
+    const isQuiet = () => localStorage.getItem(QUIET_KEY) === "true";
+
+    function todayEvents(){
+      const now = new Date();
+      const s = startOfDay(now), eod = endOfDay(now);
+      return events.map(e => ({ t: new Date(e.t), type: e.type }))
+                   .filter(ev => ev.t >= s && ev.t <= eod)
+                   .sort((a,b) => a.t - b.t);
+    }
+
+    function render(){
+      const now = new Date();
+      const today = todayEvents();
+      const countSelf = today.filter(e => e.type === "self").length;
+      const countSeen = today.filter(e => e.type === "seen").length;
+
+      $("todayLine").textContent = `Сегодня: ${fmtDate.format(now)} · Нажатий: ${countSelf + countSeen}`;
+      $("countSelf").textContent = countSelf;
+      $("countSeen").textContent = countSeen;
+      $("noToday").style.display = today.length ? "none" : "block";
+
+      const list = $("listToday"); list.innerHTML = "";
+      today.forEach((e,i)=>{
+        const div = document.createElement("div");
+        div.className = "tag";
+        div.style.borderColor = e.type === "self" ? "#fecaca" : "#bfdbfe";
+        div.style.background = e.type === "self" ? "#fff1f2" : "#eff6ff";
+        div.textContent = `#${i+1} · ${fmtTime.format(e.t)} · ${e.type === "self" ? "я ВЙ" : "вижу ВЙ"}`;
+        list.appendChild(div);
+      });
+
+      drawTimeline(today);
+      drawBars7();
+      drawAllDay();
+    }
+
+    function clearSVG(svg){ while (svg.firstChild) svg.removeChild(svg.firstChild); }
+    function line(svg, x1,y1,x2,y2, stroke="#e5e7eb", width=1){ const el = document.createElementNS("http://www.w3.org/2000/svg","line"); el.setAttribute("x1",x1); el.setAttribute("y1",y1); el.setAttribute("x2",x2); el.setAttribute("y2",y2); el.setAttribute("stroke",stroke); el.setAttribute("stroke-width",width); svg.appendChild(el); return el; }
+    function text(svg, x,y, str, fill="#374151", size=10, anchor="middle"){ const el = document.createElementNS("http://www.w3.org/2000/svg","text"); el.setAttribute("x",x); el.setAttribute("y",y); el.setAttribute("fill",fill); el.setAttribute("font-size",size); el.setAttribute("text-anchor",anchor); el.textContent = str; svg.appendChild(el); return el; }
+    function circle(svg, cx,cy,r, fill="#ef4444", stroke="none"){ const el = document.createElementNS("http://www.w3.org/2000/svg","circle"); el.setAttribute("cx",cx); el.setAttribute("cy",cy); el.setAttribute("r",r); el.setAttribute("fill",fill); if (stroke!=="none"){ el.setAttribute("stroke",stroke); el.setAttribute("stroke-width","1"); } svg.appendChild(el); return el; }
+    function rect(svg, x,y,w,h, fill="#60a5fa"){ const el = document.createElementNS("http://www.w3.org/2000/svg","rect"); el.setAttribute("x",x); el.setAttribute("y",y); el.setAttribute("width",w); el.setAttribute("height",h); el.setAttribute("fill",fill); svg.appendChild(el); return el; }
+
+    function scaleX_5to24(W, PAD, d){
+      const minutes = d.getHours()*60 + d.getMinutes();
+      const minStart = 5*60, minEnd = 24*60;
+      const clamped = Math.min(Math.max(minutes, minStart), minEnd);
+      const ratio = (clamped - minStart) / (minEnd - minStart);
+      return PAD + (W - 2*PAD) * ratio;
+    }
+
+    function drawTimeline(today){
+      const svg = $("svgTimeline"); clearSVG(svg);
+      const W = 800, H = 200, PAD = 28;
+      line(svg, PAD, H-PAD, W-PAD, H-PAD);
+      for (let h=5; h<=24; h+=3){
+        const x = PAD + (W-2*PAD) * ((h-5)/(24-5));
+        line(svg, x, H-PAD, x, H-PAD-6);
+        text(svg, x, H-PAD+12, `${String(h).padStart(2,'0')}:00`);
+      }
+      today.forEach(e => {
+        const x = scaleX_5to24(W, PAD, e.t);
+        const y = H/2 + (e.type === "self" ? -18 : 18);
+        const color = e.type === "self" ? "#ef4444" : "#3b82f6";
+        circle(svg, x, y, 5, color, "#ffffff");
+      });
+    }
+
+    function drawBars7(){
+      const svg = $("svgBars"); clearSVG(svg);
+      const W = 800, H = 260, PAD = 36;
+      const now = new Date();
+      const list = [];
+      for (let i=6;i>=0;i--){
+        const day = new Date(now); day.setDate(day.getDate()-i);
+        const s = startOfDay(day), eod = endOfDay(day);
+        const sel = events.map(o => ({ t:new Date(o.t), type:o.type })).filter(o => o.t>=s && o.t<=eod);
+        const selfC = sel.filter(o => o.type==="self").length;
+        const seenC = sel.filter(o => o.type==="seen").length;
+        list.push({label: fmtDayLabel(s), self:selfC, seen:seenC});
+      }
+      const max = Math.max(1, ...list.map(d=>d.self + d.seen));
+      line(svg, PAD, H-PAD, W-PAD, H-PAD);
+      line(svg, PAD, H-PAD, PAD, PAD);
+      const slot = (W-2*PAD)/list.length;
+      const bw = slot*0.60;
+      list.forEach((d, i)=>{
+        const x = PAD + i*slot + (slot-bw)/2;
+        const total = d.self + d.seen;
+        const hTotal = (H-2*PAD) * (total/max);
+        const hSelf = (H-2*PAD) * (d.self/max);
+        const hSeen = (H-2*PAD) * (d.seen/max);
+        rect(svg, x, H-PAD-hSelf - hSeen, bw, hSelf, "#ef4444");
+        rect(svg, x, H-PAD-hSeen, bw, hSeen, "#3b82f6");
+        text(svg, x+bw/2, H-PAD+12, d.label);
+        if (total>0) text(svg, x+bw/2, H-PAD-hTotal-4, String(total));
+      });
+    }
+
+    function drawAllDay(){
+      const svg = $("svgAllDay"); clearSVG(svg);
+      const W = 800, H = 220, PAD = 28;
+      const ySelf = H/2 - 30;
+      const ySeen = H/2 + 30;
+      line(svg, PAD, H-PAD, W-PAD, H-PAD);
+      for (let h=5; h<=24; h+=3){
+        const x = PAD + (W-2*PAD) * ((h-5)/(24-5));
+        line(svg, x, H-PAD, x, H-PAD-6);
+        text(svg, x, H-PAD+12, `${String(h).padStart(2,'0')}:00`);
+      }
+      const jitter = () => (Math.random()-0.5)*8;
+      events.filter(e => e.type==="self").forEach(e => {
+        const d = new Date(e.t);
+        const x = scaleX_5to24(W, PAD, d);
+        circle(svg, x, ySelf + jitter(), 4, "#ef4444", "#ffffff");
+      });
+      events.filter(e => e.type==="seen").forEach(e => {
+        const d = new Date(e.t);
+        const x = scaleX_5to24(W, PAD, d);
+        circle(svg, x, ySeen + jitter(), 4, "#3b82f6", "#ffffff");
+      });
+    }
+
+    const confettiCanvas = $("confettiCanvas");
+    const ctx2d = confettiCanvas.getContext("2d");
+    function resizeCanvas(){ confettiCanvas.width = window.innerWidth; confettiCanvas.height = window.innerHeight; }
+    window.addEventListener("resize", resizeCanvas); resizeCanvas();
+
+    function celebrate(color="#ef4444"){
+      const N = 90;
+      const parts = Array.from({length:N}, ()=> ({
+        x: confettiCanvas.width/2,
+        y: confettiCanvas.height/3,
+        vx: (Math.random()-0.5)*6,
+        vy: Math.random()*-6 - 3,
+        g: 0.18 + Math.random()*0.05,
+        s: 3 + Math.random()*4,
+        c: Math.random()<0.5 ? color : "#3b82f6",
+        a: 1
+      }));
+      let t = 0;
+      const anim = () => {
+        t++;
+        ctx2d.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+        parts.forEach(p=>{
+          p.vx *= 0.99; p.vy += p.g;
+          p.x += p.vx; p.y += p.vy;
+          p.a *= 0.995;
+          ctx2d.globalAlpha = Math.max(0, p.a);
+          ctx2d.fillStyle = p.c;
+          ctx2d.save(); ctx2d.translate(p.x, p.y); ctx2d.rotate(p.x*0.05);
+          ctx2d.fillRect(-p.s/2, -p.s/2, p.s, p.s);
+          ctx2d.restore();
+        });
+        ctx2d.globalAlpha = 1;
+        if (t < 150) requestAnimationFrame(anim); else ctx2d.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+      };
+      anim();
+      if (!isQuiet()) quietArpeggio();
+    }
+
+    let sharedAC = null;
+    function getAC(){
+      try {
+        sharedAC = sharedAC || new (window.AudioContext || window.webkitAudioContext)();
+        if (sharedAC.state === "suspended") sharedAC.resume();
+        return sharedAC;
+      } catch { return null; }
+    }
+
+    function quietArpeggio(){
+      const ac = getAC(); if (!ac) return;
+      const now = ac.currentTime;
+      const freqs = [659.25, 880.0, 1174.66]; // E5, A5, D6
+      const lpf = ac.createBiquadFilter(); lpf.type = "lowpass"; lpf.frequency.setValueAtTime(2400, now);
+      const master = ac.createGain(); master.gain.setValueAtTime(0.5, now);
+      lpf.connect(master).connect(ac.destination);
+      freqs.forEach((f, i)=>{
+        const t = now + i*0.22;
+        const osc = ac.createOscillator(); osc.type = "sine"; osc.frequency.setValueAtTime(f, t);
+        const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+        osc.connect(g).connect(lpf); osc.start(t); osc.stop(t + 1.45);
+      });
+    }
+
+    $("tapSelf").addEventListener("click", ()=>{
+      events.push({ t: new Date().toISOString(), type: "self" });
+      save(events); render(); celebrate("#ef4444");
+    });
+    $("tapSeen").addEventListener("click", ()=>{
+      events.push({ t: new Date().toISOString(), type: "seen" });
+      save(events); render(); celebrate("#3b82f6");
+    });
+    $("clearBtn").addEventListener("click", ()=>{
+      if (confirm("Очистить все данные?")) { events = []; save(events); render(); }
+    });
+    $("manualBtn").addEventListener("click", ()=>{
+      const type = prompt("Тип: введите 1 — 'я ВЙ', 2 — 'вижу ВЙ'"); if (!type) return;
+      const t = type.trim() === "2" ? "seen" : "self";
+      const input = prompt("Введите время в формате ЧЧ:ММ (24ч)"); if (!input) return;
+      const m = input.match(/^(\d{1,2}):(\d{2})$/); if (!m) return alert("Неверный формат");
+      const h = parseInt(m[1],10), min = parseInt(m[2],10); if (h>23 || min>59) return alert("Неверное время");
+      const d = new Date(); d.setHours(h,min,0,0);
+      events.push({ t: d.toISOString(), type: t }); save(events); render(); celebrate(t==="self" ? "#ef4444" : "#3b82f6");
+    });
+    $("exportBtn").addEventListener("click", ()=>{
+      const header = "timestamp,type\n";
+      const rows = events.map(e => `${e.t},${e.type}`).join("\n");
+      const blob = new Blob([header + rows], { type:"text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "vajrayogini_taps.csv"; a.click();
+      URL.revokeObjectURL(url);
+    });
+    $("undoBtn").addEventListener("click", ()=>{
+      const removed = events.pop();
+      if (removed){ save(events); render(); }
+    });
+
+    render();
+  </script>
+</body>
+</html>
