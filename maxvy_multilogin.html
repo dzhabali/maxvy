@@ -1,255 +1,271 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ваджрайогини — трекер</title>
-  <style>
-    :root{
-      --bg:#f8f9fa;--card:#fff;--line:#e5e7eb;--muted:#6b7280;--head:#e9ecef;
-      --accent:#198754;--accent2:#157347;--highlight:#d8f5d0
-    }
-    body{margin:0;background:var(--bg);font:16px/1.35 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif}
-    .topbar{position:sticky;top:0;background:var(--card);padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #ccc;z-index:10}
-    .title{font-weight:700}
-    .spacer{flex:1}
-    .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
-    button{padding:8px 12px;border:none;background:var(--accent);color:#fff;border-radius:8px;cursor:pointer}
-    button:hover{background:var(--accent2)}
-    button[disabled]{opacity:.6;cursor:default}
-    .btn{padding:6px 10px;border:none;border-radius:8px;cursor:pointer}
-    .btn-success{background:var(--accent);color:#fff}
-    .btn-success:hover{background:var(--accent2)}
-    .btn-sm{padding:6px 10px;font-size:14px}
-    input[type="date"]{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
-    table{border-collapse:collapse;width:100%;margin-top:10px}
-    th,td{border:1px solid var(--line);padding:10px;text-align:center}
-    th{background:var(--head);position:sticky;top:56px;z-index:5}
-    tr.current-slot{background:var(--highlight)}
-    .stats{padding:12px;background:var(--card);border-top:1px solid #ccc;margin-top:8px;font-weight:600}
-    .note{color:var(--muted);font-size:12px}
-    .pill{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:#fff}
-    .auth input{padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff;width:160px}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ваджрайогини — трекер</title>
+<style>
+  :root{--bg:#f8f9fa;--card:#fff;--line:#e5e7eb;--muted:#6b7280;--head:#e9ecef;
+        --accent:#198754;--accent2:#157347;--highlight:#d8f5d0;--danger:#b42318}
+  body{margin:0;background:var(--bg);font:16px/1.35 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif}
+  .topbar{position:sticky;top:0;background:var(--card);padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #ccc;z-index:10}
+  .title{font-weight:700}
+  .spacer{flex:1}
+  .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
+  button{padding:8px 12px;border:none;background:var(--accent);color:#fff;border-radius:8px;cursor:pointer}
+  button:hover{background:var(--accent2)}
+  button[disabled]{opacity:.6;cursor:default}
+  .btn{padding:6px 10px;border:none;border-radius:8px;cursor:pointer}
+  .btn-success{background:var(--accent);color:#fff}
+  .btn-success:hover{background:var(--accent2)}
+  .btn-sleep{background:#64748b;color:#fff}
+  .btn-forgot{background:#eab308;color:#111}
+  .btn-sm{padding:6px 10px;font-size:14px}
+  input[type="date"]{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;margin-top:10px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:center}
+  th{background:var(--head);position:sticky;top:56px;z-index:5}
+  tr.current-slot{background:var(--highlight)}
+  .stats{padding:12px;background:var(--card);border-top:1px solid #ccc;margin-top:8px;font-weight:600}
+  .note{color:var(--muted);font-size:12px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:#fff}
+  .auth input{padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff;width:160px}
+  .chips{display:flex;gap:6px;justify-content:center}
+  .chip-on{outline:2px solid #111; outline-offset:1px}
+  .goal{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .bar{height:10px;border-radius:999px;background:#e5e7eb;flex:1;overflow:hidden}
+  .bar>span{display:block;height:100%;background:var(--accent);width:0}
+  .danger{color:var(--danger)}
+</style>
 
-  <!-- Firebase v10 (modular) -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-    import {
-      getAuth, onAuthStateChanged,
-      signInWithEmailAndPassword, createUserWithEmailAndPassword,
-      sendPasswordResetEmail, signOut
-    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import {
-      getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, serverTimestamp
-    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+  import { getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-    // ТВОИ КЛЮЧИ (как прислала)
-    const firebaseConfig = {
-      apiKey: "AIzaSyAYeb4qPZSHAdDqMxneVYtdFsy-hsuSbVs",
-      authDomain: "vy-tracker.firebaseapp.com",
-      projectId: "vy-tracker",
-      // storageBucket не используется в этом файле, оставлю стандартный формат
-      storageBucket: "vy-tracker.appspot.com",
-      messagingSenderId: "140906721201",
-      appId: "1:140906721201:web:c17603021a784fe5e01790",
-      measurementId: "G-Z4ZXW1N1WN"
-    };
+  // ТВОИ КЛЮЧИ
+  const firebaseConfig = {
+    apiKey: "AIzaSyAYeb4qPZSHAdDqMxneVYtdFsy-hsuSbVs",
+    authDomain: "vy-tracker.firebaseapp.com",
+    projectId: "vy-tracker",
+    storageBucket: "vy-tracker.appspot.com",
+    messagingSenderId: "140906721201",
+    appId: "1:140906721201:web:c17603021a784fe5e01790",
+    measurementId: "G-Z4ZXW1N1WN"
+  };
 
-    // --- инициализация
-    const app  = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db   = getFirestore(app);
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
 
-    // --- утилиты
-    const slotTime = i => `${String(Math.floor(i/4)).padStart(2,'0')}:${String((i%4)*15).padStart(2,'0')}`;
-    const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0}));
-    const dayRef = (uid,dateStr)=> doc(db, 'users', uid, 'days', dateStr);
+  // Утилиты и константы
+  const DAILY_GOAL = 100;
+  const slotTime = i => `${String(Math.floor(i/4)).padStart(2,'0')}:${String((i%4)*15).padStart(2,'0')}`;
+  const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0,sleep:false,forgot:false}));
+  const dayRef = (uid,dateStr)=> doc(db,'users',uid,'days',dateStr);
 
-    // --- элементы
-    const datePicker     = document.getElementById('datePicker');
-    const tableContainer = document.getElementById('tableContainer');
-    const statsDiv       = document.getElementById('stats');
-    const btnSleep       = document.getElementById('markSleep');
-    const btnExportDay   = document.getElementById('exportDay');
-    const btnExportAll   = document.getElementById('exportAll');
-    const authState      = document.getElementById('authState');
-    const userInfo       = document.getElementById('userInfo');
-    const emailEl        = document.getElementById('email');
-    const pwdEl          = document.getElementById('pwd');
-    const btnSignIn      = document.getElementById('btnSignIn');
-    const btnSignUp      = document.getElementById('btnSignUp');
-    const btnReset       = document.getElementById('btnReset');
-    const btnLogout      = document.getElementById('btnLogout');
+  // DOM
+  const datePicker     = document.getElementById('datePicker');
+  const tableContainer = document.getElementById('tableContainer');
+  const statsDiv       = document.getElementById('stats');
+  const goalBar        = document.getElementById('goalBar');
+  const goalNum        = document.getElementById('goalNum');
+  const btnSleepBulk   = document.getElementById('markSleep');
+  const btnExportDay   = document.getElementById('exportDay');
+  const btnExportAll   = document.getElementById('exportAll');
+  const authState      = document.getElementById('authState');
+  const userInfo       = document.getElementById('userInfo');
+  const emailEl        = document.getElementById('email');
+  const pwdEl          = document.getElementById('pwd');
+  const btnSignIn      = document.getElementById('btnSignIn');
+  const btnSignUp      = document.getElementById('btnSignUp');
+  const btnReset       = document.getElementById('btnReset');
+  const btnLogout      = document.getElementById('btnLogout');
 
-    // по умолчанию сегодня
-    datePicker.valueAsDate = new Date();
+  datePicker.valueAsDate = new Date();
 
-    let uid=null, unsubDay=null, dayCache=null;
+  let uid=null, unsubDay=null, dayCache=null;
 
-    // --- AUTH
-    btnSignUp.onclick = async ()=>{
-      try{
-        await createUserWithEmailAndPassword(auth, emailEl.value.trim(), pwdEl.value);
-        alert('Аккаунт создан, ты вошла ✨');
-      }catch(e){ alert(e.message); }
-    };
-    btnSignIn.onclick = async ()=>{
-      try{
-        await signInWithEmailAndPassword(auth, emailEl.value.trim(), pwdEl.value);
-      }catch(e){ alert(e.message); }
-    };
-    btnReset.onclick = async ()=>{
-      try{
-        await sendPasswordResetEmail(auth, emailEl.value.trim());
-        alert('Письмо для смены пароля отправлено.');
-      }catch(e){ alert(e.message); }
-    };
-    btnLogout.onclick = async ()=>{
+  // --- AUTH
+  btnSignUp.onclick = async ()=>{ try{ await createUserWithEmailAndPassword(auth,emailEl.value.trim(),pwdEl.value); alert('Аккаунт создан ✨'); }catch(e){ alert(e.message); } };
+  btnSignIn.onclick = async ()=>{ try{ await signInWithEmailAndPassword(auth,emailEl.value.trim(),pwdEl.value); }catch(e){ alert(e.message); } };
+  btnReset.onclick  = async ()=>{ try{ await sendPasswordResetEmail(auth,emailEl.value.trim()); alert('Письмо для смены пароля отправлено.'); }catch(e){ alert(e.message); } };
+  btnLogout.onclick = async ()=>{ if (unsubDay){unsubDay();unsubDay=null} await signOut(auth); };
+
+  onAuthStateChanged(auth, user=>{
+    if (user){
+      uid = user.uid;
+      authState.textContent = 'в сети';
+      userInfo.textContent  = user.email ? ` · ${user.email}` : '';
+      btnLogout.style.display=''; btnSignIn.style.display='none'; btnSignUp.style.display='none'; btnReset.style.display='none'; emailEl.style.display='none'; pwdEl.style.display='none';
+      btnExportDay.disabled=false; btnExportAll.disabled=false;
+      attachDayListener(datePicker.value);
+    } else {
+      uid = null;
+      authState.textContent = 'не вошла';
+      userInfo.textContent  = '';
+      btnLogout.style.display='none'; btnSignIn.style.display=''; btnSignUp.style.display=''; btnReset.style.display=''; emailEl.style.display=''; pwdEl.style.display='';
+      btnExportDay.disabled=true; btnExportAll.disabled=true;
       if (unsubDay){unsubDay();unsubDay=null}
-      await signOut(auth);
-    };
+      dayCache=null; renderTable();
+    }
+  });
 
-    onAuthStateChanged(auth, user=>{
-      if (user){
-        uid = user.uid;
-        authState.textContent = 'в сети';
-        userInfo.textContent  = user.email ? ` · ${user.email}` : '';
-        btnLogout.style.display=''; btnSignIn.style.display='none'; btnSignUp.style.display='none'; btnReset.style.display='none'; emailEl.style.display='none'; pwdEl.style.display='none';
-        btnExportDay.disabled=false; btnExportAll.disabled=false;
-        attachDayListener(datePicker.value);
+  // --- ДАННЫЕ
+  function migrate(slots){
+    // переносим старые записи в новый формат
+    return (slots||[]).map(s=>({
+      time:s.time,
+      count:Number(s.count||0),
+      sleep: Boolean(s.sleep||false),
+      forgot:Boolean(s.forgot||false)
+    }));
+  }
+
+  function attachDayListener(dateStr){
+    if (!uid) return;
+    if (unsubDay){unsubDay();unsubDay=null}
+    unsubDay = onSnapshot(dayRef(uid,dateStr), async snap=>{
+      if (snap.exists()){
+        dayCache = migrate(snap.data().slots);
       } else {
-        uid = null;
-        authState.textContent = 'не вошла';
-        userInfo.textContent  = '';
-        btnLogout.style.display='none'; btnSignIn.style.display=''; btnSignUp.style.display=''; btnReset.style.display=''; emailEl.style.display=''; pwdEl.style.display='';
-        btnExportDay.disabled=true; btnExportAll.disabled=true;
-        if (unsubDay){unsubDay();unsubDay=null}
-        dayCache=null; renderTable();
+        const slots = emptyDay();
+        await setDoc(dayRef(uid,dateStr),{slots,updatedAt:serverTimestamp()});
+        dayCache = slots;
       }
-    });
+      renderTable();
+    }, err=>console.error(err));
+  }
 
-    // --- ДАННЫЕ
-    function migrateToCounts(slots){
-      // если когда-то были старые поля, берём только count
-      return (slots||[]).map(s=>({time:s.time, count:Number(s.count||0)}));
+  function renderTable(){
+    const dateStr = datePicker.value;
+    const now = new Date();
+    const isToday = dateStr === now.toISOString().slice(0,10);
+    const currentSlot = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : -1;
+    const slots = dayCache || emptyDay();
+
+    let html = '<table><thead><tr><th>Время</th><th>ВЙ</th><th>Сон</th><th>Забыл</th><th>Сколько раз</th></tr></thead><tbody>';
+    slots.forEach((s,idx)=>{
+      const cls = idx===currentSlot ? 'current-slot' : '';
+      const sleepOn  = s.sleep ? 'chip-on' : '';
+      const forgotOn = s.forgot? 'chip-on' : '';
+      const disablePlus = s.sleep || s.forgot;
+      html += `<tr class="${cls}">
+        <td>${s.time}</td>
+        <td><button class="btn btn-success btn-sm" data-act="plus" data-idx="${idx}" ${disablePlus?'disabled':''}>+1</button></td>
+        <td><button class="btn btn-sleep btn-sm ${sleepOn}"  data-act="sleep"  data-idx="${idx}">Сон</button></td>
+        <td><button class="btn btn-forgot btn-sm ${forgotOn}" data-act="forgot" data-idx="${idx}">Забыл</button></td>
+        <td id="c_${idx}">${s.count}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    tableContainer.innerHTML = html;
+
+    updateStats();
+  }
+
+  // обработка кликов по таблице
+  tableContainer.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-act]');
+    if (!btn || !uid) return;
+    const idx = Number(btn.dataset.idx);
+    const act = btn.dataset.act;
+
+    const slots = (dayCache || emptyDay()).slice();
+    const s = slots[idx];
+
+    if (act==='plus'){
+      if (s.sleep || s.forgot) return; // заблокировано
+      s.count = Number(s.count||0)+1;
+    } else if (act==='sleep'){
+      // переключаем; при включении сбрасываем забыто/счётчик
+      const newVal = !s.sleep;
+      s.sleep = newVal;
+      if (newVal){ s.forgot=false; s.count=0; }
+    } else if (act==='forgot'){
+      const newVal = !s.forgot;
+      s.forgot = newVal;
+      if (newVal){ s.sleep=false; s.count=0; }
     }
 
-    function attachDayListener(dateStr){
-      if (!uid) return;
-      if (unsubDay){unsubDay();unsubDay=null}
-      unsubDay = onSnapshot(dayRef(uid,dateStr), async snap=>{
-        if (snap.exists()){
-          const data = snap.data();
-          dayCache = data.slots ? migrateToCounts(data.slots) : emptyDay();
-        } else {
-          const slots = emptyDay();
-          await setDoc(dayRef(uid,dateStr), {slots, updatedAt: serverTimestamp()});
-          dayCache = slots;
-        }
-        renderTable();
-      }, err=>console.error(err));
+    dayCache = slots;
+    renderTable(); // перерисуем кнопки/счётчики
+    try{
+      await setDoc(dayRef(uid,datePicker.value), {slots}, {merge:true});
+    }catch(err){ console.error(err); }
+  });
+
+  // массово пометить "сон" до текущего времени
+  btnSleepBulk.addEventListener('click', async ()=>{
+    if (!uid) return;
+    const dateStr = datePicker.value;
+    const slots = (dayCache || emptyDay()).slice();
+    const now = new Date();
+    const isToday = dateStr === now.toISOString().slice(0,10);
+    const limit = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : slots.length;
+    for (let i=0;i<limit;i++){ slots[i].sleep=true; slots[i].forgot=false; slots[i].count=0; }
+    dayCache = slots; renderTable();
+    await setDoc(dayRef(uid,dateStr), {slots, updatedAt:serverTimestamp()}, {merge:true});
+  });
+
+  function updateStats(){
+    const slots = dayCache || emptyDay();
+    const totalPlus = slots.reduce((a,s)=>a+(Number(s.count)||0),0);
+    const sleepSlots = slots.filter(s=>s.sleep).length;
+    const hoursSleep = (sleepSlots/4).toFixed(2);
+    const forgotSlots= slots.filter(s=>s.forgot).length;
+
+    // прогресс
+    const pct = Math.min(100, Math.round(totalPlus/DAILY_GOAL*100));
+    goalBar.style.width = pct + '%';
+    goalNum.textContent = `${totalPlus}/${DAILY_GOAL} (${pct}%)`;
+
+    statsDiv.innerHTML = `
+      Итого +1: <b>${totalPlus}</b> &nbsp;•&nbsp;
+      Сон: <b>${hoursSleep}</b> ч &nbsp;•&nbsp;
+      Забыла: <b>${forgotSlots}</b> слотов
+      ${totalPlus>=DAILY_GOAL ? ' &nbsp; <span>💃 цель выполнена!</span>' : ''}
+    `;
+  }
+
+  datePicker.addEventListener('change', ()=>{
+    if (uid) attachDayListener(datePicker.value); else renderTable();
+  });
+
+  // экспорт
+  function exportCSV(obj,filename){
+    const rows=[['Дата','Время','+1 (сколько раз)','Сон','Забыл']];
+    for (const [date,slots] of Object.entries(obj)){
+      (slots||[]).forEach(s=>rows.push([date,s.time,Number(s.count||0), s.sleep?'Да':'', s.forgot?'Да':'']));
     }
+    const csv = rows.map(r=>r.join(',')).join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  }
 
-    function renderTable(){
-      const dateStr = datePicker.value;
-      const now = new Date();
-      const isToday = dateStr === now.toISOString().slice(0,10);
-      const currentSlot = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : -1;
-      const slots = dayCache || emptyDay();
+  btnExportDay.addEventListener('click', async ()=>{
+    if (!uid) return;
+    const dateStr = datePicker.value;
+    const snap = await getDoc(dayRef(uid,dateStr));
+    const slots = snap.exists() ? migrate(snap.data().slots) : [];
+    exportCSV({[dateStr]:slots}, `vajrayogini_${dateStr}.csv`);
+  });
+  btnExportAll.addEventListener('click', async ()=>{
+    if (!uid) return;
+    const daysSnap = await getDocs(collection(db,'users',uid,'days'));
+    const obj={}; daysSnap.forEach(d=>obj[d.id]=migrate(d.data().slots||[]));
+    exportCSV(obj, `vajrayogini_all.csv`);
+  });
 
-      let html = '<table><thead><tr><th>Время</th><th>ВЙ</th><th>Сколько раз</th></tr></thead><tbody>';
-      slots.forEach((s,idx)=>{
-        const cls = idx===currentSlot ? 'current-slot' : '';
-        html += `<tr class="${cls}">
-          <td>${s.time}</td>
-          <td><button class="btn btn-success btn-sm" data-idx="${idx}" title="+1">+1</button></td>
-          <td id="c_${idx}">${s.count}</td>
-        </tr>`;
-      });
-      html += '</tbody></table>';
-      tableContainer.innerHTML = html;
-
-      updateStats();
-    }
-
-    // +1 по кнопке
-    tableContainer.addEventListener('click', async (e)=>{
-      const btn = e.target.closest('button[data-idx]');
-      if (!btn || !uid) return;
-      const idx = Number(btn.dataset.idx);
-      const slots = (dayCache || emptyDay()).slice();
-      slots[idx].count = Number(slots[idx].count||0) + 1;
-      dayCache = slots;
-      const cell = document.getElementById(`c_${idx}`);
-      if (cell) cell.textContent = slots[idx].count;
-      updateStats();
-      try{
-        await setDoc(dayRef(uid,datePicker.value), {slots}, {merge:true});
-      }catch(err){ console.error(err); }
-    });
-
-    // массовый +1 до текущего времени
-    btnSleep.addEventListener('click', async ()=>{
-      if (!uid) return;
-      const dateStr = datePicker.value;
-      const slots = (dayCache || emptyDay()).slice();
-      const now = new Date();
-      const isToday = dateStr === now.toISOString().slice(0,10);
-      const limit = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : slots.length;
-      for (let i=0;i<limit;i++) slots[i].count = Number(slots[i].count||0) + 1;
-      dayCache = slots; renderTable();
-      await setDoc(dayRef(uid,dateStr), {slots, updatedAt: serverTimestamp()}, {merge:true});
-    });
-
-    function updateStats(){
-      const total = (dayCache||emptyDay()).reduce((a,s)=>a+(Number(s.count)||0),0);
-      statsDiv.textContent = `Итого за день: ${total}`;
-    }
-
-    datePicker.addEventListener('change', ()=>{
-      if (uid) attachDayListener(datePicker.value); else renderTable();
-    });
-
-    // --- Экспорт
-    function exportCSV(obj,filename){
-      const rows=[['Дата','Время','Сколько раз (ВЙ)']];
-      for (const [date,slots] of Object.entries(obj)){
-        (slots||[]).forEach(s=>rows.push([date,s.time,Number(s.count||0)]));
-      }
-      const csv = rows.map(r=>r.join(',')).join('\n');
-      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
-      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
-    }
-
-    btnExportDay.addEventListener('click', async ()=>{
-      if (!uid) return;
-      const dateStr = datePicker.value;
-      const snap = await getDoc(dayRef(uid,dateStr));
-      const slots = snap.exists() ? migrateToCounts(snap.data().slots) : [];
-      exportCSV({[dateStr]:slots}, `vajrayogini_${dateStr}.csv`);
-    });
-
-    btnExportAll.addEventListener('click', async ()=>{
-      if (!uid) return;
-      const daysSnap = await getDocs(collection(db,'users',uid,'days'));
-      const obj={};
-      daysSnap.forEach(d=>{
-        const data=d.data();
-        obj[d.id]=migrateToCounts(data.slots||[]);
-      });
-      exportCSV(obj, `vajrayogini_all.csv`);
-    });
-
-    // первый рендер (без данных)
-    renderTable();
-  </script>
+  // первичный рендер
+  renderTable();
+</script>
 </head>
 <body>
   <div class="topbar">
     <span class="title">Ваджрайогини — трекер</span>
     <input type="date" id="datePicker" />
-    <button id="markSleep" class="pill" title="Увеличить все слоты до текущего времени на +1">Отметить всё до текущего времени как сон (+1)</button>
+    <button id="markSleep" class="pill" title="Пометить все прошедшие слоты как Сон">Отметить всё до текущего времени как сон</button>
     <div class="spacer"></div>
     <span id="authState" class="badge">не вошла</span>
     <span id="userInfo" class="note"></span>
@@ -266,6 +282,12 @@
   </div>
 
   <div id="tableContainer"></div>
-  <div class="stats" id="stats">Итого за день: 0</div>
+
+  <div class="stats" id="stats">Итого +1: 0 • Сон: 0 ч • Забыла: 0</div>
+  <div class="goal" style="padding:10px;background:var(--card);border-top:1px solid #ccc;">
+    Прогресс к 100:
+    <div class="bar"><span id="goalBar" style="width:0%"></span></div>
+    <span id="goalNum">0/100 (0%)</span>
+  </div>
 </body>
 </html>
