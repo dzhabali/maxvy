@@ -1,262 +1,271 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Ваджрайогини — трекер (Email + Firestore)</title>
-<style>
-  :root{--bg:#f8f9fa;--card:#fff;--line:#e5e7eb;--muted:#6b7280;--head:#e9ecef;--accent:#198754;--accent2:#157347;--slot-empty:#f1f3f5;--slot-current:#d8f5d0}
-  body{margin:0;background:var(--bg);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  .topbar{position:sticky;top:0;background:var(--card);padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #ccc;z-index:10}
-  .title{font-weight:700}
-  .spacer{flex:1}
-  .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
-  button{padding:6px 12px;border:none;background:var(--accent);color:#fff;border-radius:6px;cursor:pointer}
-  button:hover{background:var(--accent2)}
-  button[disabled]{opacity:.6;cursor:default}
-  input,select{padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
-  table{border-collapse:collapse;width:100%;margin-top:10px}
-  th,td{border:1px solid var(--line);padding:6px;text-align:center}
-  th{background:var(--head);position:sticky;top:56px;z-index:5}
-  tr.empty-slot{background:var(--slot-empty)}
-  tr.current-slot{background:var(--slot-current)}
-  input[type="number"]{width:72px}
-  .stats{padding:12px;background:var(--card);border-top:1px solid #ccc;margin-top:10px}
-  .auth{display:flex;gap:8px;align-items:center}
-  .auth input{width:180px}
-  .note{color:var(--muted);font-size:12px}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ваджрайогини — трекер</title>
+  <style>
+    :root{
+      --bg:#f8f9fa;--card:#fff;--line:#e5e7eb;--muted:#6b7280;--head:#e9ecef;
+      --accent:#198754;--accent2:#157347;--highlight:#d8f5d0
+    }
+    body{margin:0;background:var(--bg);font:16px/1.35 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif}
+    .topbar{position:sticky;top:0;background:var(--card);padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #ccc;z-index:10}
+    .title{font-weight:700}
+    .spacer{flex:1}
+    .badge{font-size:12px;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3}
+    button{padding:8px 12px;border:none;background:var(--accent);color:#fff;border-radius:8px;cursor:pointer}
+    button:hover{background:var(--accent2)}
+    button[disabled]{opacity:.6;cursor:default}
+    .btn{padding:6px 10px;border:none;border-radius:8px;cursor:pointer}
+    .btn-success{background:var(--accent);color:#fff}
+    .btn-success:hover{background:var(--accent2)}
+    .btn-sm{padding:6px 10px;font-size:14px}
+    input[type="date"]{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+    table{border-collapse:collapse;width:100%;margin-top:10px}
+    th,td{border:1px solid var(--line);padding:10px;text-align:center}
+    th{background:var(--head);position:sticky;top:56px;z-index:5}
+    tr.current-slot{background:var(--highlight)}
+    .stats{padding:12px;background:var(--card);border-top:1px solid #ccc;margin-top:8px;font-weight:600}
+    .note{color:var(--muted);font-size:12px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:#fff}
+    .auth input{padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff;width:160px}
+  </style>
 
-<!-- Firebase compat SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <!-- Firebase v10 (modular) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth, onAuthStateChanged,
+      signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      sendPasswordResetEmail, signOut
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import {
+      getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-<script>
-// 🔑 ВСТАВЬ СВОИ КЛЮЧИ ИЗ FIREBASE (Project settings → Web app):
-const firebaseConfig = {
-  apiKey: "AIzaSyAYeb4qPZSHAdDqMxneVYtdFsy-hsuSbVs",
-  authDomain: "vy-tracker.firebaseapp.com",
-  projectId: "vy-tracker",
-  storageBucket: "vy-tracker.firebasestorage.app",
-  messagingSenderId: "140906721201",
-  appId: "1:140906721201:web:c17603021a784fe5e01790",
-  measurementId: "G-Z4ZXW1N1WN"
-};
-// ————
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db   = firebase.firestore();
-firebase.firestore().enablePersistence().catch(()=>{});
+    // ТВОИ КЛЮЧИ (как прислала)
+    const firebaseConfig = {
+      apiKey: "AIzaSyAYeb4qPZSHAdDqMxneVYtdFsy-hsuSbVs",
+      authDomain: "vy-tracker.firebaseapp.com",
+      projectId: "vy-tracker",
+      // storageBucket не используется в этом файле, оставлю стандартный формат
+      storageBucket: "vy-tracker.appspot.com",
+      messagingSenderId: "140906721201",
+      appId: "1:140906721201:web:c17603021a784fe5e01790",
+      measurementId: "G-Z4ZXW1N1WN"
+    };
 
-// helpers
-function slotTime(i){const h=String(Math.floor(i/4)).padStart(2,'0');const m=String((i%4)*15).padStart(2,'0');return `${h}:${m}`;}
-function emptyDay(){return Array.from({length:96},(_,i)=>({time:slotTime(i),vy:false,vyAround:false,sleep:false,count:0}))}
-function dayDocRef(uid,dateStr){return db.collection('users').doc(uid).collection('days').doc(dateStr)}
-</script>
+    // --- инициализация
+    const app  = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+
+    // --- утилиты
+    const slotTime = i => `${String(Math.floor(i/4)).padStart(2,'0')}:${String((i%4)*15).padStart(2,'0')}`;
+    const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0}));
+    const dayRef = (uid,dateStr)=> doc(db, 'users', uid, 'days', dateStr);
+
+    // --- элементы
+    const datePicker     = document.getElementById('datePicker');
+    const tableContainer = document.getElementById('tableContainer');
+    const statsDiv       = document.getElementById('stats');
+    const btnSleep       = document.getElementById('markSleep');
+    const btnExportDay   = document.getElementById('exportDay');
+    const btnExportAll   = document.getElementById('exportAll');
+    const authState      = document.getElementById('authState');
+    const userInfo       = document.getElementById('userInfo');
+    const emailEl        = document.getElementById('email');
+    const pwdEl          = document.getElementById('pwd');
+    const btnSignIn      = document.getElementById('btnSignIn');
+    const btnSignUp      = document.getElementById('btnSignUp');
+    const btnReset       = document.getElementById('btnReset');
+    const btnLogout      = document.getElementById('btnLogout');
+
+    // по умолчанию сегодня
+    datePicker.valueAsDate = new Date();
+
+    let uid=null, unsubDay=null, dayCache=null;
+
+    // --- AUTH
+    btnSignUp.onclick = async ()=>{
+      try{
+        await createUserWithEmailAndPassword(auth, emailEl.value.trim(), pwdEl.value);
+        alert('Аккаунт создан, ты вошла ✨');
+      }catch(e){ alert(e.message); }
+    };
+    btnSignIn.onclick = async ()=>{
+      try{
+        await signInWithEmailAndPassword(auth, emailEl.value.trim(), pwdEl.value);
+      }catch(e){ alert(e.message); }
+    };
+    btnReset.onclick = async ()=>{
+      try{
+        await sendPasswordResetEmail(auth, emailEl.value.trim());
+        alert('Письмо для смены пароля отправлено.');
+      }catch(e){ alert(e.message); }
+    };
+    btnLogout.onclick = async ()=>{
+      if (unsubDay){unsubDay();unsubDay=null}
+      await signOut(auth);
+    };
+
+    onAuthStateChanged(auth, user=>{
+      if (user){
+        uid = user.uid;
+        authState.textContent = 'в сети';
+        userInfo.textContent  = user.email ? ` · ${user.email}` : '';
+        btnLogout.style.display=''; btnSignIn.style.display='none'; btnSignUp.style.display='none'; btnReset.style.display='none'; emailEl.style.display='none'; pwdEl.style.display='none';
+        btnExportDay.disabled=false; btnExportAll.disabled=false;
+        attachDayListener(datePicker.value);
+      } else {
+        uid = null;
+        authState.textContent = 'не вошла';
+        userInfo.textContent  = '';
+        btnLogout.style.display='none'; btnSignIn.style.display=''; btnSignUp.style.display=''; btnReset.style.display=''; emailEl.style.display=''; pwdEl.style.display='';
+        btnExportDay.disabled=true; btnExportAll.disabled=true;
+        if (unsubDay){unsubDay();unsubDay=null}
+        dayCache=null; renderTable();
+      }
+    });
+
+    // --- ДАННЫЕ
+    function migrateToCounts(slots){
+      // если когда-то были старые поля, берём только count
+      return (slots||[]).map(s=>({time:s.time, count:Number(s.count||0)}));
+    }
+
+    function attachDayListener(dateStr){
+      if (!uid) return;
+      if (unsubDay){unsubDay();unsubDay=null}
+      unsubDay = onSnapshot(dayRef(uid,dateStr), async snap=>{
+        if (snap.exists()){
+          const data = snap.data();
+          dayCache = data.slots ? migrateToCounts(data.slots) : emptyDay();
+        } else {
+          const slots = emptyDay();
+          await setDoc(dayRef(uid,dateStr), {slots, updatedAt: serverTimestamp()});
+          dayCache = slots;
+        }
+        renderTable();
+      }, err=>console.error(err));
+    }
+
+    function renderTable(){
+      const dateStr = datePicker.value;
+      const now = new Date();
+      const isToday = dateStr === now.toISOString().slice(0,10);
+      const currentSlot = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : -1;
+      const slots = dayCache || emptyDay();
+
+      let html = '<table><thead><tr><th>Время</th><th>ВЙ</th><th>Сколько раз</th></tr></thead><tbody>';
+      slots.forEach((s,idx)=>{
+        const cls = idx===currentSlot ? 'current-slot' : '';
+        html += `<tr class="${cls}">
+          <td>${s.time}</td>
+          <td><button class="btn btn-success btn-sm" data-idx="${idx}" title="+1">+1</button></td>
+          <td id="c_${idx}">${s.count}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      tableContainer.innerHTML = html;
+
+      updateStats();
+    }
+
+    // +1 по кнопке
+    tableContainer.addEventListener('click', async (e)=>{
+      const btn = e.target.closest('button[data-idx]');
+      if (!btn || !uid) return;
+      const idx = Number(btn.dataset.idx);
+      const slots = (dayCache || emptyDay()).slice();
+      slots[idx].count = Number(slots[idx].count||0) + 1;
+      dayCache = slots;
+      const cell = document.getElementById(`c_${idx}`);
+      if (cell) cell.textContent = slots[idx].count;
+      updateStats();
+      try{
+        await setDoc(dayRef(uid,datePicker.value), {slots}, {merge:true});
+      }catch(err){ console.error(err); }
+    });
+
+    // массовый +1 до текущего времени
+    btnSleep.addEventListener('click', async ()=>{
+      if (!uid) return;
+      const dateStr = datePicker.value;
+      const slots = (dayCache || emptyDay()).slice();
+      const now = new Date();
+      const isToday = dateStr === now.toISOString().slice(0,10);
+      const limit = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : slots.length;
+      for (let i=0;i<limit;i++) slots[i].count = Number(slots[i].count||0) + 1;
+      dayCache = slots; renderTable();
+      await setDoc(dayRef(uid,dateStr), {slots, updatedAt: serverTimestamp()}, {merge:true});
+    });
+
+    function updateStats(){
+      const total = (dayCache||emptyDay()).reduce((a,s)=>a+(Number(s.count)||0),0);
+      statsDiv.textContent = `Итого за день: ${total}`;
+    }
+
+    datePicker.addEventListener('change', ()=>{
+      if (uid) attachDayListener(datePicker.value); else renderTable();
+    });
+
+    // --- Экспорт
+    function exportCSV(obj,filename){
+      const rows=[['Дата','Время','Сколько раз (ВЙ)']];
+      for (const [date,slots] of Object.entries(obj)){
+        (slots||[]).forEach(s=>rows.push([date,s.time,Number(s.count||0)]));
+      }
+      const csv = rows.map(r=>r.join(',')).join('\n');
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+    }
+
+    btnExportDay.addEventListener('click', async ()=>{
+      if (!uid) return;
+      const dateStr = datePicker.value;
+      const snap = await getDoc(dayRef(uid,dateStr));
+      const slots = snap.exists() ? migrateToCounts(snap.data().slots) : [];
+      exportCSV({[dateStr]:slots}, `vajrayogini_${dateStr}.csv`);
+    });
+
+    btnExportAll.addEventListener('click', async ()=>{
+      if (!uid) return;
+      const daysSnap = await getDocs(collection(db,'users',uid,'days'));
+      const obj={};
+      daysSnap.forEach(d=>{
+        const data=d.data();
+        obj[d.id]=migrateToCounts(data.slots||[]);
+      });
+      exportCSV(obj, `vajrayogini_all.csv`);
+    });
+
+    // первый рендер (без данных)
+    renderTable();
+  </script>
 </head>
 <body>
-
-<div class="topbar">
-  <span class="title">Ваджрайогини — трекер</span>
-  <input type="date" id="datePicker" />
-  <button id="markSleep">Отметить всё до текущего времени как сон</button>
-  <div class="spacer"></div>
-  <span id="authState" class="badge">не вошла</span>
-  <span id="userInfo" class="note"></span>
-  <div class="auth" id="authBox">
-    <input type="email" id="email" placeholder="email">
-    <input type="password" id="pwd" placeholder="пароль">
-    <button id="btnSignIn" title="войти">Войти</button>
-    <button id="btnSignUp" title="создать аккаунт">Создать</button>
-    <button id="btnReset" title="восстановить пароль">Забыли?</button>
-    <button id="btnLogout" style="display:none;">Выйти</button>
+  <div class="topbar">
+    <span class="title">Ваджрайогини — трекер</span>
+    <input type="date" id="datePicker" />
+    <button id="markSleep" class="pill" title="Увеличить все слоты до текущего времени на +1">Отметить всё до текущего времени как сон (+1)</button>
+    <div class="spacer"></div>
+    <span id="authState" class="badge">не вошла</span>
+    <span id="userInfo" class="note"></span>
+    <div class="auth" id="authBox">
+      <input type="email" id="email" placeholder="email">
+      <input type="password" id="pwd" placeholder="пароль">
+      <button id="btnSignIn">Войти</button>
+      <button id="btnSignUp" title="создать аккаунт">Создать</button>
+      <button id="btnReset" title="восстановить пароль">Забыли?</button>
+      <button id="btnLogout" style="display:none;">Выйти</button>
+    </div>
+    <button id="exportDay" disabled>Экспорт дня</button>
+    <button id="exportAll" disabled>Экспорт всей истории</button>
   </div>
-  <button id="exportDay" disabled>Экспорт дня</button>
-  <button id="exportAll" disabled>Экспорт всей истории</button>
-</div>
 
-<div id="tableContainer"></div>
-<div class="stats" id="stats"></div>
-
-<script>
-const datePicker     = document.getElementById('datePicker');
-const tableContainer = document.getElementById('tableContainer');
-const statsDiv       = document.getElementById('stats');
-const btnSleep       = document.getElementById('markSleep');
-const btnExportDay   = document.getElementById('exportDay');
-const btnExportAll   = document.getElementById('exportAll');
-const authState      = document.getElementById('authState');
-const userInfo       = document.getElementById('userInfo');
-const emailEl        = document.getElementById('email');
-const pwdEl          = document.getElementById('pwd');
-const btnSignIn      = document.getElementById('btnSignIn');
-const btnSignUp      = document.getElementById('btnSignUp');
-const btnReset       = document.getElementById('btnReset');
-const btnLogout      = document.getElementById('btnLogout');
-
-datePicker.valueAsDate = new Date();
-
-let uid = null, unsubDay = null, dayCache = null;
-
-// —— AUTH (email/password)
-btnSignUp.onclick = async ()=>{
-  try{
-    const {user} = await auth.createUserWithEmailAndPassword(emailEl.value.trim(), pwdEl.value);
-    alert('Аккаунт создан. Вы вошли.');
-  }catch(e){ alert(e.message); }
-};
-btnSignIn.onclick = async ()=>{
-  try{
-    const {user} = await auth.signInWithEmailAndPassword(emailEl.value.trim(), pwdEl.value);
-  }catch(e){ alert(e.message); }
-};
-btnReset.onclick = async ()=>{
-  try{
-    await auth.sendPasswordResetEmail(emailEl.value.trim());
-    alert('Письмо для смены пароля отправлено.');
-  }catch(e){ alert(e.message); }
-};
-btnLogout.onclick = async ()=>{
-  if (unsubDay){unsubDay();unsubDay=null}
-  await auth.signOut();
-};
-
-auth.onAuthStateChanged(user=>{
-  if (user){
-    uid = user.uid;
-    authState.textContent = 'в сети';
-    userInfo.textContent  = user.email ? ` · ${user.email}` : '';
-    btnLogout.style.display=''; btnSignIn.style.display='none'; btnSignUp.style.display='none'; btnReset.style.display='none'; emailEl.style.display='none'; pwdEl.style.display='none';
-    btnExportDay.disabled=false; btnExportAll.disabled=false;
-    attachDayListener(datePicker.value);
-  } else {
-    uid = null;
-    authState.textContent = 'не вошла';
-    userInfo.textContent  = '';
-    btnLogout.style.display='none'; btnSignIn.style.display=''; btnSignUp.style.display=''; btnReset.style.display=''; emailEl.style.display=''; pwdEl.style.display='';
-    btnExportDay.disabled=true; btnExportAll.disabled=true;
-    if (unsubDay){unsubDay();unsubDay=null}
-    dayCache=null; renderTable();
-  }
-});
-
-// —— DATA
-function attachDayListener(dateStr){
-  if (!uid) return;
-  if (unsubDay){unsubDay();unsubDay=null}
-  unsubDay = dayDocRef(uid,dateStr).onSnapshot(async snap=>{
-    if (snap.exists){ dayCache = snap.data().slots || emptyDay(); }
-    else{
-      const slots = emptyDay();
-      await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
-      dayCache = slots;
-    }
-    renderTable();
-  }, err=>console.error(err));
-}
-
-function renderTable(){
-  const dateStr = datePicker.value;
-  const now = new Date();
-  const isToday = dateStr === now.toISOString().slice(0,10);
-  const currentSlot = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : -1;
-  const slots = dayCache || emptyDay();
-
-  let html = '<table><thead><tr><th>Время</th><th>Чувствовала ВЙ</th><th>Видела ВЙ</th><th>Сон</th><th>Сколько раз вспоминала</th></tr></thead><tbody>';
-  slots.forEach((s,idx)=>{
-    const empty = !s.vy && !s.vyAround && !s.sleep && !s.count;
-    const cls = `${empty?'empty-slot':''} ${idx===currentSlot?'current-slot':''}`.trim();
-    html += `<tr class="${cls}">
-      <td>${s.time}</td>
-      <td><input type="checkbox" data-idx="${idx}" data-field="vy" ${s.vy?'checked':''}></td>
-      <td><input type="checkbox" data-idx="${idx}" data-field="vyAround" ${s.vyAround?'checked':''}></td>
-      <td><input type="checkbox" data-idx="${idx}" data-field="sleep" ${s.sleep?'checked':''}></td>
-      <td><input type="number" min="0" data-idx="${idx}" data-field="count" value="${s.count}"></td>
-    </tr>`;
-  });
-  html += '</tbody></table>';
-  tableContainer.innerHTML = html;
-
-  if (currentSlot>=0 && !renderTable._scrolled){
-    const row = tableContainer.querySelectorAll('tr')[currentSlot+1];
-    if (row){ row.scrollIntoView({behavior:'smooth',block:'center'}); renderTable._scrolled = true; }
-  }
-  updateStats();
-}
-
-tableContainer.addEventListener('change', async (e)=>{
-  const idx = e.target.dataset.idx, field = e.target.dataset.field;
-  if (idx===undefined || !uid) return;
-  const dateStr = datePicker.value;
-  const slots = (dayCache || emptyDay()).slice();
-  if (field==='count'){ slots[idx][field] = Number(e.target.value)||0; }
-  else { slots[idx][field] = e.target.checked; }
-  dayCache = slots; renderTable();
-  try{
-    await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
-  }catch(err){ console.error(err); }
-});
-
-btnSleep.addEventListener('click', async ()=>{
-  if (!uid) return;
-  const dateStr = datePicker.value;
-  const slots = (dayCache || emptyDay()).slice();
-  const now = new Date();
-  const isToday = dateStr === now.toISOString().slice(0,10);
-  const limit = isToday ? Math.floor((now.getHours()*60+now.getMinutes())/15) : slots.length;
-  for (let i=0;i<limit;i++) slots[i].sleep = true;
-  dayCache = slots; renderTable();
-  await dayDocRef(uid,dateStr).set({slots, updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
-});
-
-function updateStats(){
-  const slots = dayCache || emptyDay();
-  const total = slots.length;
-  const vy = slots.filter(s=>s.vy).length;
-  const va = slots.filter(s=>s.vyAround).length;
-  const sl = slots.filter(s=>s.sleep).length;
-  const sum = slots.reduce((a,s)=>a+(Number(s.count)||0),0);
-  statsDiv.innerHTML = `
-    Чувствовала ВЙ: ${vy} слотов (${Math.round(vy/total*100)}%)<br>
-    Видела ВЙ: ${va} слотов (${Math.round(va/total*100)}%)<br>
-    Сон: ${sl} слотов (${Math.round(sl/total*100)}%)<br>
-    Сумма «Сколько раз вспоминала»: ${sum}
-  `;
-}
-
-datePicker.addEventListener('change', ()=>{
-  renderTable._scrolled = false;
-  if (uid) attachDayListener(datePicker.value); else renderTable();
-});
-
-// экспорт
-document.getElementById('exportDay').addEventListener('click', async ()=>{
-  if (!uid) return;
-  const dateStr = datePicker.value;
-  const snap = await dayDocRef(uid,dateStr).get();
-  const slots = snap.exists ? (snap.data().slots||[]) : [];
-  exportCSV({[dateStr]:slots}, `vajrayogini_${dateStr}.csv`);
-});
-document.getElementById('exportAll').addEventListener('click', async ()=>{
-  if (!uid) return;
-  const snap = await db.collection('users').doc(uid).collection('days').get();
-  const obj={}; snap.forEach(d=>obj[d.id]=d.data().slots||[]);
-  exportCSV(obj, `vajrayogini_all.csv`);
-});
-function exportCSV(obj,filename){
-  const rows=[['Дата','Время','Чувствовала ВЙ','Видела ВЙ','Сон','Сколько раз вспоминала']];
-  for (const [date,slots] of Object.entries(obj)){
-    (slots||[]).forEach(s=>rows.push([date,s.time,s.vy?'Да':'Нет',s.vyAround?'Да':'Нет',s.sleep?'Да':'Нет',s.count??0]));
-  }
-  const csv = rows.map(r=>r.join(',')).join('\n');
-  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
-}
-
-// первый рендер
-datePicker.valueAsDate = new Date();
-renderTable();
-</script>
+  <div id="tableContainer"></div>
+  <div class="stats" id="stats">Итого за день: 0</div>
 </body>
 </html>
