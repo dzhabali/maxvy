@@ -215,9 +215,6 @@
   <div class="hist-rows" id="histRows"></div>
 </div>
 
-<!-- PREV SLOT -->
-<div class="slots-wrap"><div class="nb" id="prevSlot" style="display:none"></div></div>
-
 <!-- MAIN BUTTON -->
 <div class="main-btn-wrap">
   <button class="main-btn" id="mainBtn">
@@ -442,8 +439,7 @@ function render(autoScroll=false){
   fb.className='bot-btn'+(slots[ci].forgot?' on-amber':'');
 
   // neighbor slots
-  renderNb('prevSlot', ci-1, true, slots);
-  renderNb('nextSlot', ci+1, false, slots);
+  renderNb('nextSlot', ci+1, slots);
 
   // history
   renderHist(ci, slots);
@@ -452,9 +448,9 @@ function render(autoScroll=false){
   checkMilestone(t);
 }
 
-function renderNb(id, i, isPrev, slots){
+function renderNb(id, i, slots){
   const el=document.getElementById(id);
-  if(i<0||i>=96){el.style.display='none';return;}
+  if(!el||i<0||i>=96){if(el)el.style.display='none';return;}
   el.style.display='flex';
   const s=slots[i];
   el.innerHTML=`
@@ -463,15 +459,16 @@ function renderNb(id, i, isPrev, slots){
     <div class="nb-btns">
       <button class="gem-btn" data-act="plus" data-i="${i}">${GEM_SM}+</button>
       <button class="gem-btn minus" data-act="minus" data-i="${i}">${GEM_SM}−</button>
-      ${isPrev?`
-      <button class="btn-base${s.sleep?' on':''}" data-act="sleep" data-i="${i}">${s.sleep?'Сон ✓':'Сон'}</button>
-      <button class="btn-base${s.forgot?' on-amber':''}" data-act="forgot" data-i="${i}">${s.forgot?'Забыл ✓':'Забыл'}</button>`:''}
     </div>`;
 }
 
 function renderHist(ci, slots){
+  const rows=document.getElementById('histRows');
+  const prevScroll=rows.scrollTop; // запоминаем позицию до перерисовки
+  const wasScrolledToBottom=rows.scrollHeight-rows.scrollTop-rows.clientHeight<10;
+
   let h='';
-  for(let i=0;i<ci-1;i++){
+  for(let i=0; i<ci; i++){
     const s=slots[i];
     h+=`<div class="hist-row">
       <span class="hist-time">${slotTime(i)}</span>
@@ -484,11 +481,9 @@ function renderHist(ci, slots){
       </div>
     </div>`;
   }
-  document.getElementById('histRows').innerHTML=h;
-  if(histOpen){
-    const rows=document.getElementById('histRows');
-    rows.scrollTop=rows.scrollHeight;
-  }
+  rows.innerHTML=h;
+  // восстанавливаем позицию — страница остаётся там где была
+  rows.scrollTop=prevScroll;
 }
 
 // ── INTERACTIONS ───────────────────────────────────────────────────────
@@ -571,10 +566,11 @@ function toggleHist(){
   section.classList.toggle('open',histOpen);
   btn.textContent=histOpen?'↓ скрыть':'↑ прошлые слоты';
   if(histOpen){
+    // при открытии — прокрутить к последнему слоту
     setTimeout(()=>{
       const rows=document.getElementById('histRows');
       rows.scrollTop=rows.scrollHeight;
-    },50);
+    },20);
   }
 }
 window.toggleHist=toggleHist;
