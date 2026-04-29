@@ -225,38 +225,36 @@
   <div class="hist-rows" id="histRows"></div>
 </div>
 
-<!-- TIMER -->
-<div class="timer-wrap">
-  <div class="timer-circle" id="timerCircle" onclick="timerTap()">
-    <svg class="timer-svg" viewBox="0 0 140 140">
-      <circle class="timer-track" cx="70" cy="70" r="60"/>
-      <circle class="timer-prog" id="timerProg" cx="70" cy="70" r="60"
-        stroke="#c0185a"
-        stroke-dasharray="377"
-        stroke-dashoffset="0"/>
-    </svg>
-    <div class="timer-text">
-      <span class="timer-time" id="timerDisplay">3:00</span>
-      <span class="timer-hint" id="timerHint">нажми чтобы начать</span>
-    </div>
-  </div>
-</div>
+<!-- PREV SLOT -->
+<div class="slots-wrap"><div class="nb" id="prevSlot" style="display:none"></div></div>
 
-<!-- MAIN BUTTON -->
+<!-- MAIN BUTTON with integrated timer -->
 <div class="main-btn-wrap">
   <button class="main-btn" id="mainBtn">
     <span class="cur-time-badge" id="curTimeBadge"></span>
-    <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
-      <polygon points="30,4 56,22 30,56 4,22" fill="#f472b6" opacity=".25"/>
-      <polygon points="30,4 56,22 30,32" fill="#fce7f3" opacity=".95"/>
-      <polygon points="4,22 30,32 30,56" fill="#9b1040" opacity=".92"/>
-      <polygon points="56,22 30,32 30,56" fill="#be1257" opacity=".92"/>
-      <polygon points="30,4 56,22 30,22" fill="#fff" opacity=".98"/>
-      <polygon points="30,4 4,22 30,22" fill="#fda4cf" opacity=".9"/>
-      <polygon points="4,22 30,22 30,32" fill="#e91a6e" opacity=".7"/>
-      <polygon points="56,22 30,22 30,32" fill="#c0185a" opacity=".7"/>
-    </svg>
-    <span class="main-cnt" id="mainCnt">0</span>
+    <div style="position:relative;width:160px;height:160px;margin:4px 0">
+      <svg style="width:160px;height:160px;transform:rotate(-90deg)" viewBox="0 0 160 160">
+        <circle fill="none" stroke="rgba(255,255,255,.15)" stroke-width="10" cx="80" cy="80" r="70"/>
+        <circle class="timer-prog" id="timerProg" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="10" stroke-linecap="round"
+          cx="80" cy="80" r="70"
+          stroke-dasharray="440"
+          stroke-dashoffset="0"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+        <svg width="36" height="36" viewBox="0 0 60 60" fill="none">
+          <polygon points="30,4 56,22 30,56 4,22" fill="#f472b6" opacity=".25"/>
+          <polygon points="30,4 56,22 30,32" fill="#fce7f3" opacity=".95"/>
+          <polygon points="4,22 30,32 30,56" fill="#9b1040" opacity=".92"/>
+          <polygon points="56,22 30,32 30,56" fill="#be1257" opacity=".92"/>
+          <polygon points="30,4 56,22 30,22" fill="#fff" opacity=".98"/>
+          <polygon points="30,4 4,22 30,22" fill="#fda4cf" opacity=".9"/>
+          <polygon points="4,22 30,22 30,32" fill="#e91a6e" opacity=".7"/>
+          <polygon points="56,22 30,22 30,32" fill="#c0185a" opacity=".7"/>
+        </svg>
+        <span class="main-cnt" id="mainCnt">0</span>
+        <span class="timer-time" id="timerDisplay" style="font-size:20px;font-weight:700;color:#fff;line-height:1;font-variant-numeric:tabular-nums">3:00</span>
+      </div>
+    </div>
     <span class="main-sub">нажми — вспомнил</span>
   </button>
 </div>
@@ -466,6 +464,7 @@ function render(autoScroll=false){
   fb.className='bot-btn'+(slots[ci].forgot?' on-amber':'');
 
   // neighbor slots
+  renderNb('prevSlot', ci-1, slots);
   renderNb('nextSlot', ci+1, slots);
 
   // history
@@ -517,6 +516,7 @@ function renderHist(ci, slots){
 document.getElementById('mainBtn').addEventListener('click',()=>{
   const ci=curIdx(); const slots=dayCache||emptyDay();
   slots[ci].count++; dayCache=slots; render(); saveSlots();
+  startTimer(); // перезапускаем таймер при каждом нажатии
 });
 document.getElementById('sleepBtn').addEventListener('click',()=>{
   const ci=curIdx(); const slots=dayCache||emptyDay();
@@ -825,62 +825,56 @@ document.getElementById('calNext').addEventListener('click',()=>{
 
 // ── TIMER ──────────────────────────────────────────────────────────────
 const TIMER_DURATION = 3 * 60;
-const CIRCUMFERENCE = 2 * Math.PI * 60;
+const CIRCUMFERENCE = 2 * Math.PI * 70; // r=70 → ~440
 let timerInterval = null;
 let timerSeconds = TIMER_DURATION;
 let timerRunning = false;
 
-function timerTap(){
-  if(!timerRunning){
-    timerRunning = true;
-    timerSeconds = TIMER_DURATION;
+function startTimer(){
+  clearInterval(timerInterval);
+  timerSeconds = TIMER_DURATION;
+  timerRunning = true;
+  updateTimerUI();
+  timerInterval = setInterval(()=>{
+    timerSeconds--;
     updateTimerUI();
-    document.getElementById('timerHint').textContent = 'нажми для сброса';
-    timerInterval = setInterval(()=>{
-      timerSeconds--;
-      updateTimerUI();
-    }, 1000);
-  } else {
-    clearInterval(timerInterval); timerInterval = null;
-    timerRunning = false;
-    timerSeconds = TIMER_DURATION;
-    updateTimerUI();
-    document.getElementById('timerHint').textContent = 'нажми чтобы начать';
-  }
+  }, 1000);
 }
-window.timerTap = timerTap;
 
-function resetTimer(){
+function resetTimerUI(){
   clearInterval(timerInterval); timerInterval = null;
   timerRunning = false;
   timerSeconds = TIMER_DURATION;
   updateTimerUI();
-  document.getElementById('timerHint').textContent = 'нажми чтобы начать';
 }
-
-document.getElementById('mainBtn').addEventListener('click', resetTimer, true);
 
 function formatTimer(secs){
   const abs = Math.abs(secs);
   const m = Math.floor(abs / 60);
   const s = abs % 60;
-  const sign = secs < 0 ? '+' : '';
-  return `${sign}${m}:${String(s).padStart(2,'0')}`;
+  return `${secs < 0 ? '+' : ''}${m}:${String(s).padStart(2,'0')}`;
 }
 
 function updateTimerUI(){
   const prog = document.getElementById('timerProg');
   const disp = document.getElementById('timerDisplay');
+  if(!prog || !disp) return;
+
   if(timerSeconds >= 0){
+    // красная фаза — убываем
     const ratio = timerSeconds / TIMER_DURATION;
     prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - ratio);
-    prog.style.stroke = '#c0185a';
-    disp.style.color = '#c0185a';
+    prog.setAttribute('stroke','rgba(255,255,255,.9)');
+    disp.style.color = '#fff';
+    // кнопка красная (стандартная)
+    document.getElementById('mainBtn').style.background = '#c0185a';
   } else {
+    // зелёная фаза — секундомер
     const over = Math.min(Math.abs(timerSeconds) / TIMER_DURATION, 1);
     prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - over);
-    prog.style.stroke = '#22c55e';
+    prog.setAttribute('stroke','#22c55e');
     disp.style.color = '#22c55e';
+    document.getElementById('mainBtn').style.background = '#1a1a2e';
   }
   disp.textContent = formatTimer(timerSeconds);
 }
