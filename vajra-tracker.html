@@ -35,9 +35,9 @@
   .sleep-til-btn:hover{background:#f3f4f6;color:#111}
   .sleep-til-btn.done{color:var(--blue-text);border-color:var(--blue-border);background:var(--blue-bg)}
 
-  /* HISTORY (scroll up) */
-  .hist-section{padding:0 16px;overflow:hidden;max-height:0;transition:max-height .35s ease}
-  .hist-section.open{max-height:1200px}
+  /* HISTORY */
+  .hist-section{padding:0 16px;overflow:hidden;transition:none}
+  .hist-section.open{overflow:visible}
   .hist-hint{text-align:center;font-size:12px;color:#9ca3af;padding:10px 0 6px}
   .hist-rows{border-radius:12px;overflow:hidden;border:1px solid #e5e7eb}
   .hist-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #f3f4f6;background:#fff}
@@ -552,14 +552,25 @@ function onDateChange(){
 }
 dp.addEventListener('change', onDateChange);
 
-// history toggle
+// history toggle — без прыжков страницы
 let histOpen=false;
 function toggleHist(){
+  const btn=document.getElementById('histToggleBtn');
+  const section=document.getElementById('histSection');
   histOpen=!histOpen;
-  document.getElementById('histSection').classList.toggle('open',histOpen);
-  document.getElementById('histToggleBtn').textContent=histOpen?'↓ скрыть прошлые слоты':'↑ прошлые слоты';
+  if(histOpen){
+    section.style.height='auto';
+    section.classList.add('open');
+    btn.textContent='↓ скрыть';
+  } else {
+    section.style.height='0';
+    section.classList.remove('open');
+    btn.textContent='↑ прошлые слоты';
+  }
 }
 window.toggleHist=toggleHist;
+// init closed
+document.getElementById('histSection').style.height='0';
 
 // ── MILESTONES ─────────────────────────────────────────────────────────
 function checkMilestone(t){
