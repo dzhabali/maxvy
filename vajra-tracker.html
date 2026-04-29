@@ -69,10 +69,10 @@
 
   /* MAIN BUTTON */
   .main-btn-wrap{padding:0 16px;margin-bottom:10px}
-  .main-btn{width:100%;border:none;border-radius:24px;background:var(--crimson);cursor:pointer;padding:18px 0 16px;display:flex;flex-direction:column;align-items:center;gap:6px;transition:transform .08s,background .15s;user-select:none}
+  .main-btn{width:100%;border:none;border-radius:24px;background:var(--crimson);cursor:pointer;padding:14px 0 12px;display:flex;flex-direction:column;align-items:center;gap:5px;transition:transform .08s,background .15s;user-select:none}
   .main-btn:active{transform:scale(.985);background:var(--crimson2)}
   .cur-time-badge{font-size:13px;color:rgba(255,255,255,.6);margin-bottom:2px}
-  .main-cnt{font-size:52px;font-weight:700;color:#111;line-height:1}
+  .main-cnt{font-size:42px;font-weight:700;color:#fff;line-height:1}
   .main-sub{font-size:14px;color:rgba(255,255,255,.75)}
 
   /* BOT BUTTONS */
@@ -157,6 +157,16 @@
   .export-btn{flex:1;padding:8px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;font-size:12px;color:#6b7280}
   .export-btn:hover{background:#f3f4f6}
   .export-btn:disabled{opacity:.4;cursor:not-allowed}
+
+  /* TIMER */
+  .timer-wrap{padding:8px 16px 0;display:flex;justify-content:center}
+  .timer-circle{width:140px;height:140px;position:relative;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .timer-svg{width:140px;height:140px;transform:rotate(-90deg)}
+  .timer-track{fill:none;stroke:#f3f4f6;stroke-width:9}
+  .timer-prog{fill:none;stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .5s linear,stroke .5s}
+  .timer-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+  .timer-time{font-size:32px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+  .timer-hint{font-size:11px;color:#9ca3af;margin-top:2px}
 </style>
 
 <!-- Firebase -->
@@ -213,6 +223,23 @@
 </div>
 <div class="hist-section" id="histSection">
   <div class="hist-rows" id="histRows"></div>
+</div>
+
+<!-- TIMER -->
+<div class="timer-wrap">
+  <div class="timer-circle" id="timerCircle" onclick="timerTap()">
+    <svg class="timer-svg" viewBox="0 0 140 140">
+      <circle class="timer-track" cx="70" cy="70" r="60"/>
+      <circle class="timer-prog" id="timerProg" cx="70" cy="70" r="60"
+        stroke="#c0185a"
+        stroke-dasharray="377"
+        stroke-dashoffset="0"/>
+    </svg>
+    <div class="timer-text">
+      <span class="timer-time" id="timerDisplay">3:00</span>
+      <span class="timer-hint" id="timerHint">нажми чтобы начать</span>
+    </div>
+  </div>
 </div>
 
 <!-- MAIN BUTTON -->
@@ -795,6 +822,69 @@ document.getElementById('calNext').addEventListener('click',()=>{
 });
 
 // ── INIT ───────────────────────────────────────────────────────────────
+
+// ── TIMER ──────────────────────────────────────────────────────────────
+const TIMER_DURATION = 3 * 60;
+const CIRCUMFERENCE = 2 * Math.PI * 60;
+let timerInterval = null;
+let timerSeconds = TIMER_DURATION;
+let timerRunning = false;
+
+function timerTap(){
+  if(!timerRunning){
+    timerRunning = true;
+    timerSeconds = TIMER_DURATION;
+    updateTimerUI();
+    document.getElementById('timerHint').textContent = 'нажми для сброса';
+    timerInterval = setInterval(()=>{
+      timerSeconds--;
+      updateTimerUI();
+    }, 1000);
+  } else {
+    clearInterval(timerInterval); timerInterval = null;
+    timerRunning = false;
+    timerSeconds = TIMER_DURATION;
+    updateTimerUI();
+    document.getElementById('timerHint').textContent = 'нажми чтобы начать';
+  }
+}
+window.timerTap = timerTap;
+
+function resetTimer(){
+  clearInterval(timerInterval); timerInterval = null;
+  timerRunning = false;
+  timerSeconds = TIMER_DURATION;
+  updateTimerUI();
+  document.getElementById('timerHint').textContent = 'нажми чтобы начать';
+}
+
+document.getElementById('mainBtn').addEventListener('click', resetTimer, true);
+
+function formatTimer(secs){
+  const abs = Math.abs(secs);
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  const sign = secs < 0 ? '+' : '';
+  return `${sign}${m}:${String(s).padStart(2,'0')}`;
+}
+
+function updateTimerUI(){
+  const prog = document.getElementById('timerProg');
+  const disp = document.getElementById('timerDisplay');
+  if(timerSeconds >= 0){
+    const ratio = timerSeconds / TIMER_DURATION;
+    prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - ratio);
+    prog.style.stroke = '#c0185a';
+    disp.style.color = '#c0185a';
+  } else {
+    const over = Math.min(Math.abs(timerSeconds) / TIMER_DURATION, 1);
+    prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - over);
+    prog.style.stroke = '#22c55e';
+    disp.style.color = '#22c55e';
+  }
+  disp.textContent = formatTimer(timerSeconds);
+}
+
 render();
 </script>
 </body>
