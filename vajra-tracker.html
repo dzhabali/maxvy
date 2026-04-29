@@ -192,9 +192,11 @@
 </div>
 
 <!-- DATE PICKER -->
-<div style="padding:8px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px">
-  <label style="font-size:13px;color:#6b7280">Дата:</label>
-  <input type="date" id="datePicker" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;background:#fff">
+<div style="padding:8px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:8px;justify-content:space-between">
+  <button id="datePrev" style="border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:15px;color:#6b7280">‹</button>
+  <span id="dateDisplay" style="font-size:13px;font-weight:500;color:#111;flex:1;text-align:center"></span>
+  <button id="dateNext" style="border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:15px;color:#6b7280">›</button>
+  <input type="date" id="datePicker" style="display:none">
 </div>
 
 <!-- SLEEP TILL NOW -->
@@ -202,9 +204,13 @@
   <button class="sleep-til-btn" id="sleepTilBtn">Сон до текущего времени</button>
 </div>
 
-<!-- HISTORY (appears on scroll up) -->
+<!-- HISTORY (toggle button) -->
+<div style="padding:4px 16px 0">
+  <button id="histToggleBtn" onclick="toggleHist()" style="width:100%;padding:7px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:12px;color:#9ca3af;text-align:center">
+    ↑ прошлые слоты
+  </button>
+</div>
 <div class="hist-section" id="histSection">
-  <div class="hist-hint">прошлые слоты</div>
   <div class="hist-rows" id="histRows"></div>
 </div>
 
@@ -337,7 +343,11 @@ const MILESTONES = [
 ];
 
 // ── STATE ──────────────────────────────────────────────────────────────
-let uid=null, unsubDay=null, dayCache=null, lastMilestone=0;
+let uid=null, unsubDay=null, dayCache=null;
+
+function milestoneKey(dateStr){ return `vajra_ach_${uid||'anon'}_${dateStr}`; }
+function shownMilestones(dateStr){ try{ return JSON.parse(localStorage.getItem(milestoneKey(dateStr))||'[]'); }catch(e){return[];} }
+function markMilestone(dateStr,n){ try{ const s=shownMilestones(dateStr); if(!s.includes(n)){s.push(n);localStorage.setItem(milestoneKey(dateStr),JSON.stringify(s));} }catch(e){} }
 
 function curIdx(){
   const now=new Date();
@@ -365,7 +375,7 @@ auth.onAuthStateChanged(user=>{
     document.getElementById('exportAll').disabled=false;
     attachDayListener(document.getElementById('datePicker').value);
   } else {
-    uid=null; dayCache=null; lastMilestone=0;
+    uid=null; dayCache=null;
     document.getElementById('authStatus').textContent='не вошли';
     loginEls.forEach(id=>document.getElementById(id).style.display='');
     document.getElementById('btnLogout').style.display='none';
@@ -507,32 +517,60 @@ document.getElementById('sleepTilBtn').addEventListener('click',()=>{
   render(); saveSlots();
 });
 
-// date change
+// date nav
 const dp=document.getElementById('datePicker');
 dp.valueAsDate=new Date();
-document.getElementById('dateBadge').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
-dp.addEventListener('change',()=>{
-  lastMilestone=0;
-  document.getElementById('sleepTilBtn').textContent='Сон до текущего времени';
-  document.getElementById('sleepTilBtn').className='sleep-til-btn';
-  const d=new Date(dp.value);
+
+function updateDateDisplay(){
+  const d=new Date(dp.value+'T12:00:00');
+  const today=new Date().toISOString().slice(0,10);
+  const label=dp.value===today?'Сегодня, ':''
+  document.getElementById('dateDisplay').textContent=label+d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
   document.getElementById('dateBadge').textContent=d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
-  if(uid) attachDayListener(dp.value); else render();
+}
+updateDateDisplay();
+
+document.getElementById('datePrev').addEventListener('click',()=>{
+  const d=new Date(dp.value+'T12:00:00');
+  d.setDate(d.getDate()-1);
+  dp.valueAsDate=d;
+  onDateChange();
+});
+document.getElementById('dateNext').addEventListener('click',()=>{
+  const d=new Date(dp.value+'T12:00:00');
+  d.setDate(d.getDate()+1);
+  if(dp.value>=new Date().toISOString().slice(0,10)) return;
+  dp.valueAsDate=d;
+  onDateChange();
 });
 
-// scroll → history
+function onDateChange(){
+  document.getElementById('sleepTilBtn').textContent='Сон до текущего времени';
+  document.getElementById('sleepTilBtn').className='sleep-til-btn';
+  updateDateDisplay();
+  if(uid) attachDayListener(dp.value); else render();
+}
+dp.addEventListener('change', onDateChange);
+
+// history toggle
 let histOpen=false;
-window.addEventListener('scroll',()=>{
-  const sy=window.scrollY||document.documentElement.scrollTop;
-  const hs=document.getElementById('histSection');
-  if(sy<30&&!histOpen){histOpen=true;hs.classList.add('open');}
-  else if(sy>80&&histOpen){histOpen=false;hs.classList.remove('open');}
-},{passive:true});
+function toggleHist(){
+  histOpen=!histOpen;
+  document.getElementById('histSection').classList.toggle('open',histOpen);
+  document.getElementById('histToggleBtn').textContent=histOpen?'↓ скрыть прошлые слоты':'↑ прошлые слоты';
+}
+window.toggleHist=toggleHist;
 
 // ── MILESTONES ─────────────────────────────────────────────────────────
 function checkMilestone(t){
+  const dateStr=dp.value;
+  const shown=shownMilestones(dateStr);
   for(const m of MILESTONES){
-    if(t>=m.n&&lastMilestone<m.n){lastMilestone=m.n;setTimeout(()=>showAch(m),400);break;}
+    if(t>=m.n && !shown.includes(m.n)){
+      markMilestone(dateStr,m.n);
+      setTimeout(()=>showAch(m),400);
+      break;
+    }
   }
 }
 
