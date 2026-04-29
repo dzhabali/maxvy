@@ -69,7 +69,7 @@
 
   /* MAIN BUTTON */
   .main-btn-wrap{padding:0 16px;margin-bottom:10px}
-  .main-btn{width:100%;border:none;border-radius:24px;background:var(--crimson);cursor:pointer;padding:14px 0 12px;display:flex;flex-direction:column;align-items:center;gap:5px;transition:transform .08s,background .15s;user-select:none}
+  .main-btn{width:100%;border:none;border-radius:24px;background:#0d4a3a;cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;gap:5px;transition:transform .08s,background .15s;user-select:none}
   .main-btn:active{transform:scale(.985);background:var(--crimson2)}
   .cur-time-badge{font-size:13px;color:rgba(255,255,255,.6);margin-bottom:2px}
   .main-cnt{font-size:42px;font-weight:700;color:#fff;line-height:1}
@@ -230,18 +230,17 @@
 
 <!-- MAIN BUTTON with integrated timer -->
 <div class="main-btn-wrap">
-  <button class="main-btn" id="mainBtn">
-    <span class="cur-time-badge" id="curTimeBadge"></span>
-    <div style="position:relative;width:160px;height:160px;margin:4px 0">
-      <svg style="width:160px;height:160px;transform:rotate(-90deg)" viewBox="0 0 160 160">
-        <circle fill="none" stroke="rgba(255,255,255,.15)" stroke-width="10" cx="80" cy="80" r="70"/>
-        <circle class="timer-prog" id="timerProg" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="10" stroke-linecap="round"
-          cx="80" cy="80" r="70"
-          stroke-dasharray="440"
-          stroke-dashoffset="0"/>
+  <button class="main-btn" id="mainBtn" style="flex-direction:row;align-items:center;justify-content:space-between;padding:16px 20px;gap:12px">
+    <span class="cur-time-badge" id="curTimeBadge" style="display:none"></span>
+    <!-- таймер слева -->
+    <div style="position:relative;width:120px;height:120px;flex-shrink:0">
+      <svg style="width:120px;height:120px;transform:rotate(-90deg)" viewBox="0 0 120 120">
+        <circle fill="none" stroke="rgba(255,255,255,.15)" stroke-width="9" cx="60" cy="60" r="52"/>
+        <circle id="timerProg" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="9" stroke-linecap="round"
+          cx="60" cy="60" r="52" stroke-dasharray="327" stroke-dashoffset="0"/>
       </svg>
-      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
-        <svg width="36" height="36" viewBox="0 0 60 60" fill="none">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px">
+        <svg width="22" height="22" viewBox="0 0 60 60" fill="none">
           <polygon points="30,4 56,22 30,56 4,22" fill="#f472b6" opacity=".25"/>
           <polygon points="30,4 56,22 30,32" fill="#fce7f3" opacity=".95"/>
           <polygon points="4,22 30,32 30,56" fill="#9b1040" opacity=".92"/>
@@ -251,11 +250,15 @@
           <polygon points="4,22 30,22 30,32" fill="#e91a6e" opacity=".7"/>
           <polygon points="56,22 30,22 30,32" fill="#c0185a" opacity=".7"/>
         </svg>
-        <span class="main-cnt" id="mainCnt">0</span>
-        <span class="timer-time" id="timerDisplay" style="font-size:20px;font-weight:700;color:#fff;line-height:1;font-variant-numeric:tabular-nums">3:00</span>
+        <span id="timerDisplay" style="font-size:22px;font-weight:700;color:#fff;line-height:1;font-variant-numeric:tabular-nums">3:00</span>
+        <span style="font-size:10px;color:rgba(255,255,255,.5)" id="curTimeBadge2"></span>
       </div>
     </div>
-    <span class="main-sub">нажми — вспомнил</span>
+    <!-- счётчик справа -->
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:1">
+      <span id="mainCnt" style="font-size:72px;font-weight:200;color:#fff;line-height:1;letter-spacing:-2px">0</span>
+      <span style="font-size:12px;color:rgba(255,255,255,.6)">нажми — вспомнил</span>
+    </div>
   </button>
 </div>
 
@@ -446,7 +449,7 @@ function render(autoScroll=false){
   const pct=Math.min(100,Math.round(t/100*100));
 
   // header time
-  document.getElementById('curTimeBadge').textContent=slotTime(ci);
+  document.getElementById('curTimeBadge2').textContent=slotTime(ci);
   document.getElementById('mainCnt').textContent=slots[ci].count;
 
   // footer progress
@@ -825,7 +828,7 @@ document.getElementById('calNext').addEventListener('click',()=>{
 
 // ── TIMER ──────────────────────────────────────────────────────────────
 const TIMER_DURATION = 3 * 60;
-const CIRCUMFERENCE = 2 * Math.PI * 70; // r=70 → ~440
+const CIRCUMFERENCE = 2 * Math.PI * 52; // r=52 → ~327
 let timerInterval = null;
 let timerSeconds = TIMER_DURATION;
 let timerRunning = false;
@@ -858,23 +861,23 @@ function formatTimer(secs){
 function updateTimerUI(){
   const prog = document.getElementById('timerProg');
   const disp = document.getElementById('timerDisplay');
+  const btn  = document.getElementById('mainBtn');
   if(!prog || !disp) return;
 
   if(timerSeconds >= 0){
-    // красная фаза — убываем
+    // тёмно-мятная — таймер идёт, ещё не время
     const ratio = timerSeconds / TIMER_DURATION;
     prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - ratio);
-    prog.setAttribute('stroke','rgba(255,255,255,.9)');
+    prog.setAttribute('stroke','rgba(255,255,255,.85)');
     disp.style.color = '#fff';
-    // кнопка красная (стандартная)
-    document.getElementById('mainBtn').style.background = '#c0185a';
+    btn.style.background = '#0d4a3a';
   } else {
-    // зелёная фаза — секундомер
+    // малиновая — пора вспоминать!
     const over = Math.min(Math.abs(timerSeconds) / TIMER_DURATION, 1);
     prog.style.strokeDashoffset = CIRCUMFERENCE * (1 - over);
-    prog.setAttribute('stroke','#22c55e');
-    disp.style.color = '#22c55e';
-    document.getElementById('mainBtn').style.background = '#0d4a3a';
+    prog.setAttribute('stroke','rgba(255,255,255,.9)');
+    disp.style.color = '#fff';
+    btn.style.background = '#c0185a';
   }
   disp.textContent = formatTimer(timerSeconds);
 }
