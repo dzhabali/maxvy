@@ -36,10 +36,11 @@
   .sleep-til-btn.done{color:var(--blue-text);border-color:var(--blue-border);background:var(--blue-bg)}
 
   /* HISTORY */
-  .hist-section{padding:0 16px;overflow:hidden;transition:none}
-  .hist-section.open{overflow:visible}
+  .hist-section{padding:0 16px;overflow:hidden;display:none}
+  .hist-section.open{display:block}
+  .hist-rows{max-height:300px;overflow-y:auto;border-radius:12px;border:1px solid #e5e7eb}
   .hist-hint{text-align:center;font-size:12px;color:#9ca3af;padding:10px 0 6px}
-  .hist-rows{border-radius:12px;overflow:hidden;border:1px solid #e5e7eb}
+  
   .hist-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #f3f4f6;background:#fff}
   .hist-row:last-child{border-bottom:none}
   .hist-time{font-size:13px;color:#6b7280;width:44px;flex-shrink:0}
@@ -345,9 +346,12 @@ const MILESTONES = [
 // ── STATE ──────────────────────────────────────────────────────────────
 let uid=null, unsubDay=null, dayCache=null;
 
-function milestoneKey(dateStr){ return `vajra_ach_${uid||'anon'}_${dateStr}`; }
-function shownMilestones(dateStr){ try{ return JSON.parse(localStorage.getItem(milestoneKey(dateStr))||'[]'); }catch(e){return[];} }
-function markMilestone(dateStr,n){ try{ const s=shownMilestones(dateStr); if(!s.includes(n)){s.push(n);localStorage.setItem(milestoneKey(dateStr),JSON.stringify(s));} }catch(e){} }
+// ачивки: один раз за день, только в момент достижения (не при загрузке)
+function achKey(dateStr){ return `vajra_ach_${dateStr}`; }
+function dayShown(dateStr){ try{ return new Set(JSON.parse(localStorage.getItem(achKey(dateStr))||'[]')); }catch(e){return new Set();} }
+function markDayAch(dateStr,n){ try{ const s=dayShown(dateStr); s.add(n); localStorage.setItem(achKey(dateStr),JSON.stringify([...s])); }catch(e){} }
+let prevTotal=0;
+let isLoadingDay=false; // флаг: идёт загрузка данных, не триггерим ачивки
 
 function curIdx(){
   const now=new Date();
@@ -391,13 +395,16 @@ function attachDayListener(dateStr){
   if(!uid) return;
   if(unsubDay){unsubDay();unsubDay=null;}
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
+    isLoadingDay=true;
     if(snap.exists){
       dayCache = normalizeSlots(snap.data().slots||[]);
     } else {
       dayCache = emptyDay();
       await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
     }
+    prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
+    isLoadingDay=false;
   }, err=>console.error(err));
 }
 
@@ -463,9 +470,8 @@ function renderNb(id, i, isPrev, slots){
 }
 
 function renderHist(ci, slots){
-  const from=Math.max(0,ci-12);
   let h='';
-  for(let i=ci-2;i>=from;i--){
+  for(let i=0;i<ci-1;i++){
     const s=slots[i];
     h+=`<div class="hist-row">
       <span class="hist-time">${slotTime(i)}</span>
@@ -479,6 +485,10 @@ function renderHist(ci, slots){
     </div>`;
   }
   document.getElementById('histRows').innerHTML=h;
+  if(histOpen){
+    const rows=document.getElementById('histRows');
+    rows.scrollTop=rows.scrollHeight;
+  }
 }
 
 // ── INTERACTIONS ───────────────────────────────────────────────────────
@@ -552,37 +562,37 @@ function onDateChange(){
 }
 dp.addEventListener('change', onDateChange);
 
-// history toggle — без прыжков страницы
+// history toggle
 let histOpen=false;
 function toggleHist(){
   const btn=document.getElementById('histToggleBtn');
   const section=document.getElementById('histSection');
   histOpen=!histOpen;
+  section.classList.toggle('open',histOpen);
+  btn.textContent=histOpen?'↓ скрыть':'↑ прошлые слоты';
   if(histOpen){
-    section.style.height='auto';
-    section.classList.add('open');
-    btn.textContent='↓ скрыть';
-  } else {
-    section.style.height='0';
-    section.classList.remove('open');
-    btn.textContent='↑ прошлые слоты';
+    setTimeout(()=>{
+      const rows=document.getElementById('histRows');
+      rows.scrollTop=rows.scrollHeight;
+    },50);
   }
 }
 window.toggleHist=toggleHist;
-// init closed
-document.getElementById('histSection').style.height='0';
+document.getElementById('histSection').style.height='';
 
 // ── MILESTONES ─────────────────────────────────────────────────────────
 function checkMilestone(t){
+  if(isLoadingDay) return; // при загрузке не показываем
   const dateStr=dp.value;
-  const shown=shownMilestones(dateStr);
+  const shown=dayShown(dateStr);
   for(const m of MILESTONES){
-    if(t>=m.n && !shown.includes(m.n)){
-      markMilestone(dateStr,m.n);
+    if(t>=m.n && prevTotal<m.n && !shown.has(m.n)){
+      markDayAch(dateStr,m.n);
       setTimeout(()=>showAch(m),400);
       break;
     }
   }
+  prevTotal=t;
 }
 
 function gemSVG(color){
