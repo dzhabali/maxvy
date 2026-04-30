@@ -39,6 +39,7 @@
   .hist-section{padding:0 16px;overflow:hidden;display:none}
   .hist-section.open{display:block}
   .hist-rows{max-height:300px;overflow-y:auto;border-radius:12px;border:1px solid #e5e7eb}
+  .hist-section.all-open .hist-rows{max-height:none;overflow-y:visible}
   .hist-hint{text-align:center;font-size:12px;color:#9ca3af;padding:10px 0 6px}
   
   .hist-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #f3f4f6;background:#fff}
@@ -186,6 +187,7 @@
 <div class="tabs">
   <button class="tab active" id="tabTracker" onclick="switchTab('tracker')">Трекер</button>
   <button class="tab" id="tabCalendar" onclick="switchTab('calendar')">Календарь</button>
+  <button class="tab" id="tabSleep" onclick="switchTab('sleep')">Сон</button>
 </div>
 
 <!-- TRACKER TAB -->
@@ -215,8 +217,8 @@
   <button class="sleep-til-btn" id="sleepTilBtn">Сон до текущего времени</button>
 </div>
 
-<!-- HISTORY (toggle button) -->
-<div style="padding:4px 16px 0">
+<!-- HISTORY (toggle button — only for today) -->
+<div id="histToggleWrap" style="padding:4px 16px 0">
   <button id="histToggleBtn" onclick="toggleHist()" style="width:100%;padding:7px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-size:12px;color:#9ca3af;text-align:center">
     ↑ прошлые слоты
   </button>
@@ -277,6 +279,11 @@
   <button class="export-btn" id="exportAll" disabled>Экспорт всей истории</button>
 </div>
 
+<!-- SLEEP SUMMARY -->
+<div id="sleepSummaryBar" style="padding:4px 16px 0;display:flex;align-items:center;justify-content:center">
+  <span id="sleepSummaryText" style="font-size:13px;color:#6b7280;background:#f3f4f6;padding:4px 12px;border-radius:999px;border:1px solid #e5e7eb"></span>
+</div>
+
 <!-- FOOTER PROGRESS -->
 <div class="footer-bar">
   <div class="ft"><div class="ft-fill" id="ftFill" style="width:0%"></div></div>
@@ -313,6 +320,25 @@
     </div>
   </div>
 </div><!-- /tabContentCalendar -->
+
+<!-- SLEEP TAB -->
+<div class="tab-content" id="tabContentSleep">
+  <div class="cal-wrap">
+    <div class="cal-stats" style="grid-template-columns:1fr">
+      <div class="cal-stat"><div class="cal-stat-val" id="sleepCalAvg">—</div><div class="cal-stat-lbl">среднее время сна за месяц</div></div>
+    </div>
+    <div class="cal-nav">
+      <button class="cal-nav-btn" id="sleepCalPrev">‹</button>
+      <span class="cal-month-lbl" id="sleepCalMonthLbl"></span>
+      <button class="cal-nav-btn" id="sleepCalNext">›</button>
+    </div>
+    <div class="cal-weekdays">
+      <div class="cal-wd">пн</div><div class="cal-wd">вт</div><div class="cal-wd">ср</div>
+      <div class="cal-wd">чт</div><div class="cal-wd">пт</div><div class="cal-wd">сб</div><div class="cal-wd">вс</div>
+    </div>
+    <div class="cal-grid" id="sleepCalGrid"></div>
+  </div>
+</div><!-- /tabContentSleep -->
 
 <!-- ACHIEVEMENT OVERLAY -->
 <div class="ach-overlay" id="achOverlay">
@@ -448,6 +474,24 @@ function render(autoScroll=false){
   const t=total(slots);
   const pct=Math.min(100,Math.round(t/100*100));
 
+  const todayStr=new Date().toISOString().slice(0,10);
+  const isPastDay=dp.value!==todayStr;
+
+  // для прошлого дня — скрываем кнопку и раскрываем все слоты
+  const toggleWrap=document.getElementById('histToggleWrap');
+  const histSection=document.getElementById('histSection');
+  if(isPastDay){
+    toggleWrap.style.display='none';
+    histSection.classList.add('open');
+    histSection.classList.add('all-open');
+    histSection.style.maxHeight='none';
+  } else {
+    toggleWrap.style.display='';
+    histSection.style.maxHeight='';
+    histSection.classList.remove('all-open');
+    if(!histOpen) histSection.classList.remove('open');
+  }
+
   // header time
   document.getElementById('curTimeBadge2').textContent=slotTime(ci);
   document.getElementById('mainCnt').textContent=slots[ci].count;
@@ -473,6 +517,9 @@ function render(autoScroll=false){
   // history
   renderHist(ci, slots);
 
+  // sleep summary
+  renderSleepSummary();
+
   // milestones
   checkMilestone(t);
 }
@@ -493,11 +540,15 @@ function renderNb(id, i, slots){
 
 function renderHist(ci, slots){
   const rows=document.getElementById('histRows');
-  const prevScroll=rows.scrollTop; // запоминаем позицию до перерисовки
+  const prevScroll=rows.scrollTop;
   const wasScrolledToBottom=rows.scrollHeight-rows.scrollTop-rows.clientHeight<10;
 
+  const todayStr=new Date().toISOString().slice(0,10);
+  const isPastDay=dp.value!==todayStr;
+  const maxI=isPastDay?96:ci; // для прошлого дня — все 96 слотов
+
   let h='';
-  for(let i=0; i<ci; i++){
+  for(let i=0; i<maxI; i++){
     const s=slots[i];
     h+=`<div class="hist-row">
       <span class="hist-time">${slotTime(i)}</span>
@@ -511,7 +562,6 @@ function renderHist(ci, slots){
     </div>`;
   }
   rows.innerHTML=h;
-  // восстанавливаем позицию — страница остаётся там где была
   rows.scrollTop=prevScroll;
 }
 
@@ -747,9 +797,12 @@ document.getElementById('exportAll').addEventListener('click',async()=>{
 function switchTab(tab){
   document.getElementById('tabContentTracker').classList.toggle('active', tab==='tracker');
   document.getElementById('tabContentCalendar').classList.toggle('active', tab==='calendar');
+  document.getElementById('tabContentSleep').classList.toggle('active', tab==='sleep');
   document.getElementById('tabTracker').classList.toggle('active', tab==='tracker');
   document.getElementById('tabCalendar').classList.toggle('active', tab==='calendar');
+  document.getElementById('tabSleep').classList.toggle('active', tab==='sleep');
   if(tab==='calendar') renderCalendar();
+  if(tab==='sleep') renderSleepCalendar();
 }
 window.switchTab=switchTab;
 
@@ -822,6 +875,89 @@ document.getElementById('calPrev').addEventListener('click',()=>{
 });
 document.getElementById('calNext').addEventListener('click',()=>{
   calMonth++; if(calMonth>11){calMonth=0;calYear++;} renderCalendar();
+});
+
+// ── SLEEP SUMMARY ──────────────────────────────────────────────────────
+function calcSleepMinutes(slots){
+  return (slots||[]).filter(s=>s.sleep).length * 15;
+}
+
+function fmtSleepTime(mins){
+  if(!mins) return null;
+  const h=Math.floor(mins/60);
+  const m=mins%60;
+  return `${h}:${String(m).padStart(2,'0')}`;
+}
+
+function renderSleepSummary(){
+  const slots=dayCache||emptyDay();
+  const mins=calcSleepMinutes(slots);
+  const bar=document.getElementById('sleepSummaryText');
+  if(!bar) return;
+  if(mins>0){
+    bar.textContent=`сон — ${fmtSleepTime(mins)}`;
+    bar.parentElement.style.display='flex';
+  } else {
+    bar.parentElement.style.display='none';
+  }
+}
+
+// ── SLEEP CALENDAR ─────────────────────────────────────────────────────
+let sleepCalYear=new Date().getFullYear(), sleepCalMonth=new Date().getMonth();
+
+async function renderSleepCalendar(){
+  await loadAllDaysRaw();
+  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  document.getElementById('sleepCalMonthLbl').textContent=`${months[sleepCalMonth]} ${sleepCalYear}`;
+
+  const todayStr=new Date().toISOString().slice(0,10);
+  const first=new Date(sleepCalYear,sleepCalMonth,1);
+  const last=new Date(sleepCalYear,sleepCalMonth+1,0);
+  let startDow=first.getDay(); if(startDow===0) startDow=7;
+
+  const monthMins=[];
+  let html='';
+  for(let e=1;e<startDow;e++) html+='<div class="cal-cell empty"></div>';
+  for(let d=1;d<=last.getDate();d++){
+    const ds=`${sleepCalYear}-${String(sleepCalMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const slots=allDaysRawCache[ds]||[];
+    const mins=calcSleepMinutes(slots);
+    const isToday=ds===todayStr;
+    if(mins>0) monthMins.push(mins);
+    html+=`<div class="cal-cell${isToday?' today':''}${mins?' has-data':''}">
+      <span class="cal-dn">${d}</span>
+      ${mins?`<span class="cal-score" style="color:#6b7280;font-size:14px">${fmtSleepTime(mins)}</span>`:''}
+    </div>`;
+  }
+  document.getElementById('sleepCalGrid').innerHTML=html;
+
+  // среднее с округлением до 5 минут
+  if(monthMins.length){
+    const avg=Math.round(monthMins.reduce((a,b)=>a+b,0)/monthMins.length/5)*5;
+    document.getElementById('sleepCalAvg').textContent=fmtSleepTime(avg);
+  } else {
+    document.getElementById('sleepCalAvg').textContent='—';
+  }
+}
+
+// raw cache для всех слотов (не только сумм)
+let allDaysRawCache={};
+async function loadAllDaysRaw(){
+  if(!uid) return;
+  try{
+    const snap=await db.collection('users').doc(uid).collection('days').get();
+    allDaysRawCache={};
+    snap.forEach(d=>{
+      allDaysRawCache[d.id]=normalizeSlots(d.data().slots||[]);
+    });
+  }catch(e){console.error(e);}
+}
+
+document.getElementById('sleepCalPrev').addEventListener('click',()=>{
+  sleepCalMonth--; if(sleepCalMonth<0){sleepCalMonth=11;sleepCalYear--;} renderSleepCalendar();
+});
+document.getElementById('sleepCalNext').addEventListener('click',()=>{
+  sleepCalMonth++; if(sleepCalMonth>11){sleepCalMonth=0;sleepCalYear++;} renderSleepCalendar();
 });
 
 // ── INIT ───────────────────────────────────────────────────────────────
