@@ -18,6 +18,9 @@
   .topbar{position:sticky;top:0;z-index:20;background:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e5e7eb}
   .app-title{font-weight:700;font-size:15px}
   .date-badge{font-size:12px;color:#6b7280;background:#f3f4f6;padding:4px 10px;border-radius:999px;border:1px solid #e5e7eb}
+  .undo-btn{border:1px solid #e5e7eb;background:#fff;color:#6b7280;padding:4px 10px;border-radius:999px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:auto;margin-right:8px}
+  .undo-btn:hover{background:#f3f4f6;color:#111}
+  .undo-btn:active{transform:scale(.95)}
 
   /* AUTH */
   .auth-bar{background:#f9fafb;border-bottom:1px solid #e5e7eb;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -125,10 +128,13 @@
 
   /* CALENDAR */
   .cal-wrap{padding:12px 16px 80px}
-  .cal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
-  .cal-stat{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px 8px;text-align:center}
-  .cal-stat-val{font-size:22px;font-weight:700;color:#111}
-  .cal-stat-lbl{font-size:11px;color:#6b7280;margin-top:2px}
+  .cal-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px}
+  .cal-stat{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px 6px;text-align:center}
+  .cal-stat-val{font-size:18px;font-weight:700;color:#111}
+  .cal-stat-lbl{font-size:10px;color:#6b7280;margin-top:2px;line-height:1.2}
+  #tabContentSleep .cal-stats{grid-template-columns:1fr}
+  #tabContentSleep .cal-stat-val{font-size:22px}
+  #tabContentSleep .cal-stat-lbl{font-size:11px}
   .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .cal-nav-btn{border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:15px;color:#6b7280}
   .cal-nav-btn:hover{background:#f3f4f6}
@@ -180,6 +186,7 @@
 <!-- TOPBAR -->
 <div class="topbar">
   <span class="app-title">Ваджра-трекер</span>
+  <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="date-badge" id="dateBadge"></span>
 </div>
 
@@ -297,6 +304,7 @@
 <div class="tab-content" id="tabContentCalendar">
   <div class="cal-wrap">
     <div class="cal-stats">
+      <div class="cal-stat"><div class="cal-stat-val" id="calSum">—</div><div class="cal-stat-lbl">за месяц</div></div>
       <div class="cal-stat"><div class="cal-stat-val" id="calAvg">—</div><div class="cal-stat-lbl">среднее/день</div></div>
       <div class="cal-stat"><div class="cal-stat-val" id="calBest">—</div><div class="cal-stat-lbl">лучший день</div></div>
       <div class="cal-stat"><div class="cal-stat-val" id="calDays">—</div><div class="cal-stat-lbl">дней практики</div></div>
@@ -376,6 +384,30 @@ const normalizeSlots = arr => (arr&&arr.length?arr:emptyDay()).map(s=>({
   time:s.time, count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot)
 }));
 
+// localStorage mirror — оффлайн-страховка от потери кликов
+const LS_DAY = d => `vajra_day_${d}`;
+function saveLocalDay(date, slots){
+  try{ localStorage.setItem(LS_DAY(date), JSON.stringify({slots, ts: Date.now()})); }catch(e){}
+}
+function readLocalDay(date){
+  try{
+    const raw = localStorage.getItem(LS_DAY(date));
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+// per-slot merge: max для count, OR для sleep/forgot — клик не теряется ни при каком race condition
+function mergeDays(server, local){
+  return server.map((s, i) => {
+    const l = local[i] || s;
+    return {
+      time: s.time,
+      count: Math.max(Number(s.count||0), Number(l.count||0)),
+      sleep: Boolean(s.sleep || l.sleep),
+      forgot: Boolean(s.forgot || l.forgot),
+    };
+  });
+}
+
 const GEM_SM = `<svg class="gem-icon" viewBox="0 0 20 20" fill="none" width="13" height="13">
   <polygon points="10,2 18,7 10,18 2,7" fill="#f472b6" opacity=".3"/>
   <polygon points="10,2 18,7 10,11" fill="#fce7f3" opacity=".95"/>
@@ -447,12 +479,22 @@ function attachDayListener(dateStr){
   if(unsubDay){unsubDay();unsubDay=null;}
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
-    if(snap.exists){
-      dayCache = normalizeSlots(snap.data().slots||[]);
+    const local = readLocalDay(dateStr);
+    const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
+    if(local && local.slots && local.slots.length){
+      const merged = mergeDays(serverSlots, normalizeSlots(local.slots));
+      dayCache = merged;
+      const diff = JSON.stringify(merged) !== JSON.stringify(serverSlots);
+      if(diff && !snap.metadata.hasPendingWrites){
+        try{ await dayRef(uid,dateStr).set({slots:merged, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
+      }
     } else {
-      dayCache = emptyDay();
-      await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      dayCache = serverSlots;
     }
+    if(!snap.exists && !local){
+      try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+    }
+    saveLocalDay(dateStr, dayCache);
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
     isLoadingDay=false;
@@ -460,8 +502,9 @@ function attachDayListener(dateStr){
 }
 
 async function saveSlots(){
-  if(!uid) return;
   const dateStr=document.getElementById('datePicker').value;
+  saveLocalDay(dateStr, dayCache);  // ВСЕГДА — даже если не залогинены, не теряем клики
+  if(!uid) return;
   try{
     await dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
   }catch(e){console.error(e);}
@@ -522,6 +565,9 @@ function render(autoScroll=false){
 
   // milestones
   checkMilestone(t);
+
+  // undo button
+  updateUndoBtn();
 }
 
 function renderNb(id, i, slots){
@@ -567,15 +613,21 @@ function renderHist(ci, slots){
 
 // ── INTERACTIONS ───────────────────────────────────────────────────────
 document.getElementById('mainBtn').addEventListener('click',()=>{
+  ensureToday();
+  pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
   slots[ci].count++; dayCache=slots; render(); saveSlots();
   startTimer(); // перезапускаем таймер при каждом нажатии
 });
 document.getElementById('sleepBtn').addEventListener('click',()=>{
+  ensureToday();
+  pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
   slots[ci].sleep=!slots[ci].sleep; dayCache=slots; render(); saveSlots();
 });
 document.getElementById('forgotBtn').addEventListener('click',()=>{
+  ensureToday();
+  pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
   slots[ci].forgot=!slots[ci].forgot; dayCache=slots; render(); saveSlots();
 });
@@ -583,6 +635,7 @@ document.getElementById('forgotBtn').addEventListener('click',()=>{
 document.addEventListener('click',e=>{
   const btn=e.target.closest('[data-act][data-i]');
   if(!btn) return;
+  pushUndo();
   const i=+btn.dataset.i, act=btn.dataset.act;
   const slots=dayCache||emptyDay();
   if(act==='plus')  slots[i].count++;
@@ -593,7 +646,11 @@ document.addEventListener('click',e=>{
 });
 
 document.getElementById('sleepTilBtn').addEventListener('click',()=>{
-  const ci=curIdx(); const slots=dayCache||emptyDay();
+  ensureToday();
+  const ci=curIdx();
+  if(!confirm(`Подтверждаешь? Сон с 0:00 до ${slotTime(ci)} будет отмечен.`)) return;
+  pushUndo();
+  const slots=dayCache||emptyDay();
   for(let i=0;i<ci;i++) slots[i].sleep=true;
   dayCache=slots;
   const btn=document.getElementById('sleepTilBtn');
@@ -605,6 +662,19 @@ document.getElementById('sleepTilBtn').addEventListener('click',()=>{
 // date nav
 const dp=document.getElementById('datePicker');
 dp.valueAsDate=new Date();
+
+// Гарантия, что текущий клик пишется в сегодняшний день, а не в зависший в picker'е вчера
+function ensureToday(){
+  const today = new Date().toISOString().slice(0,10);
+  if(dp.value >= today) return false;
+  dp.valueAsDate = new Date();
+  dayCache = emptyDay();  // оптимистично, чтобы текущий клик не упал в пустоту
+  updateDateDisplay();
+  const stb = document.getElementById('sleepTilBtn');
+  if(stb){ stb.textContent='Сон до текущего времени'; stb.className='sleep-til-btn'; }
+  if(uid) attachDayListener(today);  // async — подтянет данные и смержит с localStorage
+  return true;
+}
 
 function updateDateDisplay(){
   const d=new Date(dp.value+'T12:00:00');
@@ -633,6 +703,7 @@ function onDateChange(){
   document.getElementById('sleepTilBtn').textContent='Сон до текущего времени';
   document.getElementById('sleepTilBtn').className='sleep-til-btn';
   updateDateDisplay();
+  if(typeof updateUndoBtn==='function') updateUndoBtn();
   if(uid) attachDayListener(dp.value); else render();
 }
 dp.addEventListener('change', onDateChange);
@@ -857,10 +928,16 @@ async function renderCalendar(){
   }
   document.getElementById('calGrid').innerHTML=html;
 
-  const vals=Object.values(allDaysCache).filter(v=>v>0);
-  document.getElementById('calAvg').textContent=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):'—';
-  document.getElementById('calBest').textContent=vals.length?Math.max(...vals):'—';
-  document.getElementById('calDays').textContent=vals.length||'—';
+  // месячные статы — фильтруем по показанному месяцу (calYear+calMonth)
+  const monthPrefix=`${calYear}-${String(calMonth+1).padStart(2,'0')}-`;
+  const monthVals=Object.entries(allDaysCache)
+    .filter(([k,v])=>k.startsWith(monthPrefix)&&v>0)
+    .map(([,v])=>v);
+  const monthSum=monthVals.reduce((a,b)=>a+b,0);
+  document.getElementById('calSum').textContent =monthSum||'—';
+  document.getElementById('calAvg').textContent =monthVals.length?Math.round(monthSum/monthVals.length):'—';
+  document.getElementById('calBest').textContent=monthVals.length?Math.max(...monthVals):'—';
+  document.getElementById('calDays').textContent=monthVals.length||'—';
 }
 
 function calDayClick(ds){
@@ -960,6 +1037,59 @@ document.getElementById('sleepCalNext').addEventListener('click',()=>{
   sleepCalMonth++; if(sleepCalMonth>11){sleepCalMonth=0;sleepCalYear++;} renderSleepCalendar();
 });
 
+// ── UNDO STACK ─────────────────────────────────────────────────────────
+const UNDO_MAX = 20;
+let undoStack = [];
+try{
+  const saved = localStorage.getItem('vajra_undo');
+  if(saved) undoStack = JSON.parse(saved) || [];
+}catch(e){ undoStack = []; }
+
+function pushUndo(){
+  if(!dayCache) return;
+  const dateStr = document.getElementById('datePicker').value;
+  undoStack.push({
+    slots: JSON.parse(JSON.stringify(dayCache)),
+    date: dateStr,
+    ts: Date.now()
+  });
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  try{ localStorage.setItem('vajra_undo', JSON.stringify(undoStack)); }catch(e){}
+  updateUndoBtn();
+}
+
+function popUndo(){
+  const curDate = document.getElementById('datePicker').value;
+  for(let i = undoStack.length - 1; i >= 0; i--){
+    if(undoStack[i].date === curDate){
+      const snap = undoStack.splice(i, 1)[0];
+      dayCache = snap.slots;
+      try{ localStorage.setItem('vajra_undo', JSON.stringify(undoStack)); }catch(e){}
+      render(); saveSlots();
+      updateUndoBtn();
+      showToast('Отменено');
+      return;
+    }
+  }
+  showToast('Нечего отменять');
+}
+
+function updateUndoBtn(){
+  const btn = document.getElementById('undoBtn');
+  const cnt = document.getElementById('undoCnt');
+  if(!btn || !cnt) return;
+  const curDate = document.getElementById('datePicker').value;
+  const n = undoStack.filter(u => u.date === curDate).length;
+  if(n > 0){
+    btn.style.display = 'inline-flex';
+    cnt.textContent = n;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+document.getElementById('undoBtn').addEventListener('click', popUndo);
+
 // ── INIT ───────────────────────────────────────────────────────────────
 
 
@@ -986,9 +1116,10 @@ function tickTimer(){
   updateTimerUI(timerSeconds);
 }
 
-// при возврате из фона — восстанавливаем таймер
+// при возврате из фона — катимся на сегодня (если picker отстал) и восстанавливаем таймер
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'visible'){
+    ensureToday();
     const saved = localStorage.getItem('vajra_timer_start');
     if(saved){
       timerStartTs = parseInt(saved);
