@@ -194,7 +194,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.2</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.3</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -230,7 +230,7 @@
 </div>
 
 <!-- SLEEP TILL NOW -->
-<div class="sleep-bar">
+<div class="sleep-bar" id="sleepBar">
   <button class="sleep-til-btn" id="sleepTilBtn">Сон до текущего времени</button>
 </div>
 
@@ -245,10 +245,10 @@
 </div>
 
 <!-- PREV SLOT -->
-<div class="slots-wrap"><div class="nb" id="prevSlot" style="display:none"></div></div>
+<div class="slots-wrap" id="prevSlotWrap"><div class="nb" id="prevSlot" style="display:none"></div></div>
 
 <!-- MAIN BUTTON with integrated timer -->
-<div class="main-btn-wrap">
+<div class="main-btn-wrap" id="mainBtnWrap">
   <button class="main-btn" id="mainBtn" style="flex-direction:row;align-items:center;justify-content:space-between;padding:16px 20px;gap:12px">
     <span class="cur-time-badge" id="curTimeBadge" style="display:none"></span>
     <!-- таймер слева -->
@@ -282,18 +282,21 @@
 </div>
 
 <!-- BOT BUTTONS -->
-<div class="bot-btns">
+<div class="bot-btns" id="botBtns">
   <button class="bot-btn" id="sleepBtn">Сон</button>
   <button class="bot-btn" id="forgotBtn">Забыл</button>
 </div>
 
 <!-- NEXT SLOT -->
-<div class="slots-wrap" style="padding-top:8px"><div class="nb" id="nextSlot" style="display:none"></div></div>
+<div class="slots-wrap" id="nextSlotWrap" style="padding-top:8px"><div class="nb" id="nextSlot" style="display:none"></div></div>
 
 <!-- EXPORT -->
 <div class="export-bar">
   <button class="export-btn" id="exportDay" disabled>Экспорт дня</button>
   <button class="export-btn" id="exportAll" disabled>Экспорт всей истории</button>
+</div>
+<div style="padding:2px 16px 0;text-align:center">
+  <button id="resetDay" style="border:none;background:transparent;color:#cbd5e1;font-size:11px;cursor:pointer;text-decoration:underline">сбросить день</button>
 </div>
 
 <!-- SLEEP SUMMARY -->
@@ -493,6 +496,10 @@ auth.onAuthStateChanged(user=>{
 function attachDayListener(dateStr){
   if(!uid) return;
   if(unsubDay){unsubDay();unsubDay=null;}
+  // Сбрасываем кеш СРАЗУ при смене дня (перекат суток в полночь / навигация по датам).
+  // Иначе в окне до прихода снапшота нового дня в dayCache лежат данные предыдущего дня,
+  // и касание/сохранение записывало их в документ нового дня → «проснулся, а очки уже набраны».
+  dayCache = emptyDay();
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const local = readLocalDay(dateStr);
@@ -535,6 +542,14 @@ function render(autoScroll=false){
 
   const todayStr=localDateStr();
   const isPastDay=dp.value!==todayStr;
+
+  // Живой UI (таймер с главной кнопкой, соседние слоты, Сон/Забыл, «Сон до...») — только для СЕГОДНЯ.
+  // На прошлом дне «текущего слота» не существует (curIdx даёт заглушку 47=11:45), поэтому фейковый
+  // активный таймер прячем. Прошлый день правится через полный список слотов ниже.
+  ['sleepBar','prevSlotWrap','mainBtnWrap','botBtns','nextSlotWrap'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display = isPastDay ? 'none' : '';
+  });
 
   // для прошлого дня — скрываем кнопку и раскрываем все слоты
   const toggleWrap=document.getElementById('histToggleWrap');
@@ -879,6 +894,26 @@ document.getElementById('exportAll').addEventListener('click',async()=>{
   const obj={};snap.forEach(d=>obj[d.id]=normalizeSlots(d.data().slots||[]));
   exportCSV(obj,'vajra_all.csv');
 });
+
+// ── СБРОС ДНЯ ──────────────────────────────────────────────────────────
+// Полный обнул всех данных за выбранную дату — и в кеше, и в localStorage-зеркале, и в Firestore.
+// Нужен, чтобы вычистить день, в который по ошибке затекли данные другого дня (merge max не давал
+// уменьшить очки обычным минусом). Откатывается кнопкой ↶.
+async function resetDay(){
+  const dateStr=dp.value;
+  if(!confirm(`Сбросить ВСЕ данные за ${dateStr}? Очки, сон и «забыл» за этот день обнулятся. Отменить можно кнопкой ↶.`)) return;
+  pushUndo();
+  dayCache=emptyDay();
+  saveLocalDay(dateStr, dayCache); // зеркало → пусто, чтобы merge(max) не воскресил старое
+  if(uid){
+    try{ await dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){console.error(e);}
+  }
+  const stb=document.getElementById('sleepTilBtn');
+  if(stb){ stb.textContent='Сон до текущего времени'; stb.className='sleep-til-btn'; }
+  render(); updateUndoBtn();
+  showToast('День сброшен');
+}
+document.getElementById('resetDay').addEventListener('click', resetDay);
 
 // ── TABS ───────────────────────────────────────────────────────────────
 function switchTab(tab){
