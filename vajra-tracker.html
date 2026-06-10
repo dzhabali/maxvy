@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.0</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.1</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -1061,9 +1061,11 @@ function drawCalendar(y,m,daysRaw){
   const monthVals=Object.values(sums).filter(v=>v>0);
   const monthSum=monthVals.reduce((a,b)=>a+b,0);
   document.getElementById('calSum').textContent =monthSum||'—';
-  document.getElementById('calAvg').textContent =monthVals.length?Math.round(monthSum/monthVals.length):'—';
   document.getElementById('calBest').textContent=monthVals.length?Math.max(...monthVals):'—';
   document.getElementById('calDays').textContent=monthVals.length||'—';
+  // среднее — только по завершённым дням: сегодня ещё идёт, неполный счёт тянул бы вниз
+  const avgVals=Object.entries(sums).filter(([ds,v])=>v>0&&ds!==todayStr).map(([,v])=>v);
+  document.getElementById('calAvg').textContent =avgVals.length?Math.round(avgVals.reduce((a,b)=>a+b,0)/avgVals.length):'—';
 }
 
 function calDayClick(ds){
@@ -1128,7 +1130,8 @@ function drawSleepCalendar(y,m,daysRaw){
     const slots=daysRaw[ds]||[];
     const mins=calcSleepMinutes(slots);
     const isToday=ds===todayStr;
-    if(mins>0) monthMins.push(mins);
+    // сегодня в среднее не берём — записана только утренняя часть, вечерний сон добавится ночью
+    if(mins>0&&!isToday) monthMins.push(mins);
     html+=`<div class="cal-cell${isToday?' today':''}${mins?' has-data':''}">
       <span class="cal-dn">${d}</span>
       ${mins?`<span class="cal-score" style="color:#6b7280;font-size:14px">${fmtSleepTime(mins)}</span>`:''}
