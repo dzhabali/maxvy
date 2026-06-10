@@ -10,7 +10,7 @@
  *
  * Версию кэша поднимать при изменении состава precache.
  */
-const CACHE = 'vajra-v2';
+const CACHE = 'vajra-v3';
 
 // gstatic-скрипты Firebase кэшируем как opaque (no-cors) — этого достаточно для <script src>.
 const FIREBASE_LIBS = [
@@ -85,6 +85,9 @@ self.addEventListener('fetch', event => {
       return resp;
     }).catch(() => null);
 
-    return cached || (await network) || cache.match('./vajra-tracker.html');
+    // Если кэша нет (первый заход) — ждём сеть, но не дольше 6с, иначе fallback на app-shell.
+    // (Сеть всё равно докэширует ответ в .then выше, когда придёт.)
+    const timed = new Promise(r => setTimeout(() => r(null), 6000));
+    return cached || (await Promise.race([network, timed])) || cache.match('./vajra-tracker.html');
   })());
 });

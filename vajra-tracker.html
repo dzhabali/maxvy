@@ -192,9 +192,23 @@
 </head>
 <body>
 
+<!-- SVG-спрайт алмаза (один <symbol> вместо инлайна ×192 в строках истории/слотов) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="gem" viewBox="0 0 20 20">
+    <polygon points="10,2 18,7 10,18 2,7" fill="#f472b6" opacity=".3"/>
+    <polygon points="10,2 18,7 10,11" fill="#fce7f3" opacity=".95"/>
+    <polygon points="2,7 10,11 10,18" fill="#9b1040" opacity=".9"/>
+    <polygon points="18,7 10,11 10,18" fill="#be1257" opacity=".9"/>
+    <polygon points="10,2 18,7 10,7" fill="#fff" opacity=".98"/>
+    <polygon points="10,2 2,7 10,7" fill="#fda4cf" opacity=".88"/>
+    <polygon points="2,7 10,7 10,11" fill="#e91a6e" opacity=".65"/>
+    <polygon points="18,7 10,7 10,11" fill="#c0185a" opacity=".65"/>
+  </symbol>
+</defs></svg>
+
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.3</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.4</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -250,7 +264,6 @@
 <!-- MAIN BUTTON with integrated timer -->
 <div class="main-btn-wrap" id="mainBtnWrap">
   <button class="main-btn" id="mainBtn" style="flex-direction:row;align-items:center;justify-content:space-between;padding:16px 20px;gap:12px">
-    <span class="cur-time-badge" id="curTimeBadge" style="display:none"></span>
     <!-- таймер слева -->
     <div style="position:relative;width:120px;height:120px;flex-shrink:0">
       <svg style="width:120px;height:120px;transform:rotate(-90deg)" viewBox="0 0 120 120">
@@ -399,14 +412,21 @@ function localDateStr(d = new Date()){
 const slotTime = i => `${String(Math.floor(i/4)).padStart(2,'0')}:${String((i%4)*15).padStart(2,'0')}`;
 const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0,sleep:false,forgot:false}));
 const dayRef   = (uid,d) => db.collection('users').doc(uid).collection('days').doc(d);
-const normalizeSlots = arr => (arr&&arr.length?arr:emptyDay()).map(s=>({
-  time:s.time, count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot)
-}));
+// Всегда ровно 96 слотов: emptyDay() как база, накладываем пришедшие по индексу.
+// Защищает render() от краша на неполном/битом документе (`slots[ci]` undefined).
+const normalizeSlots = arr => {
+  const src = Array.isArray(arr) ? arr : [];
+  return Array.from({length:96},(_,i)=>{
+    const s = src[i] || {};
+    return { time:slotTime(i), count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot) };
+  });
+};
 
-// localStorage mirror — оффлайн-страховка от потери кликов
+// localStorage mirror — оффлайн-страховка от потери кликов.
+// ts = время ПОСЛЕДНЕЙ записи данных в зеркало (для newest-wins при синке с сервером).
 const LS_DAY = d => `vajra_day_${d}`;
-function saveLocalDay(date, slots){
-  try{ localStorage.setItem(LS_DAY(date), JSON.stringify({slots, ts: Date.now()})); }catch(e){}
+function saveLocalDay(date, slots, ts){
+  try{ localStorage.setItem(LS_DAY(date), JSON.stringify({slots, ts: (ts==null?Date.now():ts)})); }catch(e){}
 }
 function readLocalDay(date){
   try{
@@ -414,29 +434,22 @@ function readLocalDay(date){
     return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
-// per-slot merge: max для count, OR для sleep/forgot — клик не теряется ни при каком race condition
-function mergeDays(server, local){
-  return server.map((s, i) => {
-    const l = local[i] || s;
-    return {
-      time: s.time,
-      count: Math.max(Number(s.count||0), Number(l.count||0)),
-      sleep: Boolean(s.sleep || l.sleep),
-      forgot: Boolean(s.forgot || l.forgot),
-    };
-  });
-}
 
-const GEM_SM = `<svg class="gem-icon" viewBox="0 0 20 20" fill="none" width="13" height="13">
-  <polygon points="10,2 18,7 10,18 2,7" fill="#f472b6" opacity=".3"/>
-  <polygon points="10,2 18,7 10,11" fill="#fce7f3" opacity=".95"/>
-  <polygon points="2,7 10,11 10,18" fill="#9b1040" opacity=".9"/>
-  <polygon points="18,7 10,11 10,18" fill="#be1257" opacity=".9"/>
-  <polygon points="10,2 18,7 10,7" fill="#fff" opacity=".98"/>
-  <polygon points="10,2 2,7 10,7" fill="#fda4cf" opacity=".88"/>
-  <polygon points="2,7 10,7 10,11" fill="#e91a6e" opacity=".65"/>
-  <polygon points="18,7 10,7 10,11" fill="#c0185a" opacity=".65"/>
-</svg>`;
+// Чистка старых зеркал/ачивок (> 60 дней) — иначе localStorage растёт без предела
+// и на iOS при переполнении начнёт тихо отказывать в записи (теряя клики).
+(function pruneOldLocal(){
+  try{
+    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-60);
+    const cutoffStr=localDateStr(cutoff);
+    for(let i=localStorage.length-1;i>=0;i--){
+      const k=localStorage.key(i);
+      const m=k&&k.match(/^vajra_(?:day|ach)_(\d{4}-\d{2}-\d{2})$/);
+      if(m && m[1]<cutoffStr) localStorage.removeItem(k);
+    }
+  }catch(e){}
+})();
+
+const GEM_SM = `<svg class="gem-icon" viewBox="0 0 20 20" width="13" height="13"><use href="#gem"/></svg>`;
 
 const MILESTONES = [
   {n:25, lbl:'ДОСТИЖЕНИЕ', sub:'Начало',          color:'#1d6ef5', sparks:['#5aaeff','#93c5fd','#bfdbfe']},
@@ -468,7 +481,7 @@ function total(slots){ return (slots||dayCache||emptyDay()).reduce((a,s)=>a+Numb
 document.getElementById('btnSignIn').onclick = async()=>{ try{ await auth.signInWithEmailAndPassword(document.getElementById('emailEl').value.trim(), document.getElementById('pwdEl').value); }catch(e){showToast(e.message);} };
 document.getElementById('btnSignUp').onclick = async()=>{ try{ await auth.createUserWithEmailAndPassword(document.getElementById('emailEl').value.trim(), document.getElementById('pwdEl').value); showToast('Аккаунт создан!'); }catch(e){showToast(e.message);} };
 document.getElementById('btnReset').onclick  = async()=>{ try{ await auth.sendPasswordResetEmail(document.getElementById('emailEl').value.trim()); showToast('Письмо отправлено'); }catch(e){showToast(e.message);} };
-document.getElementById('btnLogout').onclick = async()=>{ if(unsubDay){unsubDay();unsubDay=null;} await auth.signOut(); };
+document.getElementById('btnLogout').onclick = async()=>{ if(unsubDay){unsubDay();unsubDay=null;} clearInterval(timerInterval); timerInterval=null; flushSave(); await auth.signOut(); };
 
 auth.onAuthStateChanged(user=>{
   const loginEls=['emailEl','pwdEl','btnSignIn','btnSignUp','btnReset'];
@@ -495,6 +508,7 @@ auth.onAuthStateChanged(user=>{
 // ── DATA ───────────────────────────────────────────────────────────────
 function attachDayListener(dateStr){
   if(!uid) return;
+  flushSave();              // дописать отложенную запись прежнего дня ДО сброса кеша
   if(unsubDay){unsubDay();unsubDay=null;}
   // Сбрасываем кеш СРАЗУ при смене дня (перекат суток в полночь / навигация по датам).
   // Иначе в окне до прихода снапшота нового дня в dayCache лежат данные предыдущего дня,
@@ -502,35 +516,53 @@ function attachDayListener(dateStr){
   dayCache = emptyDay();
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
-    const local = readLocalDay(dateStr);
     const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
-    if(local && local.slots && local.slots.length){
-      const merged = mergeDays(serverSlots, normalizeSlots(local.slots));
-      dayCache = merged;
-      const diff = JSON.stringify(merged) !== JSON.stringify(serverSlots);
-      if(diff && !snap.metadata.hasPendingWrites){
-        try{ await dayRef(uid,dateStr).set({slots:merged, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
-      }
-    } else {
+    if(snap.metadata.hasPendingWrites){
+      // оптимистичный снимок нашей же записи: serverSlots уже включает её (latency-compensation).
+      // Зеркало НЕ трогаем — оно только что записано saveSlots с верным ts.
       dayCache = serverSlots;
+    } else {
+      // newest-wins вместо Math.max: зеркало берём только если оно новее серверного снимка
+      // (несинканные оффлайн-правки) и тогда же синкаем вверх. Никакого «воскрешения» большего.
+      const local = readLocalDay(dateStr);
+      const serverTs = (snap.exists && snap.data().updatedAt) ? snap.data().updatedAt.toMillis() : 0;
+      const localTs  = (local && Number.isFinite(local.ts)) ? local.ts : 0;
+      const localHas = !!(local && local.slots && local.slots.length);
+      if(localHas && localTs>serverTs){
+        dayCache = normalizeSlots(local.slots);
+        try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
+        // зеркало уже актуально (ts=localTs) — не переписываем
+      } else {
+        dayCache = serverSlots;
+        saveLocalDay(dateStr, dayCache, serverTs); // синкаем зеркало с сервером (ts=serverTs, чтобы чистое чтение не было ложно «новее»)
+      }
+      if(!snap.exists && !localHas){
+        try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+      }
     }
-    if(!snap.exists && !local){
-      try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
-    }
-    saveLocalDay(dateStr, dayCache);
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
     isLoadingDay=false;
   }, err=>console.error(err));
 }
 
-async function saveSlots(){
+// Запись слотов: зеркало — мгновенно (не теряем клики), Firestore — через debounce 500мс
+// (серия тапов коалесцируется в одну запись). Флаш — перед сменой дня / уходом в фон.
+let saveTimer=null, pendingSaveDate=null;
+function saveSlots(){
   const dateStr=document.getElementById('datePicker').value;
-  saveLocalDay(dateStr, dayCache);  // ВСЕГДА — даже если не залогинены, не теряем клики
+  saveLocalDay(dateStr, dayCache);          // ВСЕГДА, даже если не залогинены
+  markMonthDirty(dateStr);                  // календарь/сон перечитают этот месяц
   if(!uid) return;
-  try{
-    await dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-  }catch(e){console.error(e);}
+  pendingSaveDate=dateStr;
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(flushSave,500);
+}
+function flushSave(){
+  clearTimeout(saveTimer); saveTimer=null;
+  if(!uid || !pendingSaveDate) return;
+  const dateStr=pendingSaveDate; pendingSaveDate=null;
+  dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(e=>console.error(e));
 }
 
 // ── RENDER ─────────────────────────────────────────────────────────────
@@ -615,15 +647,23 @@ function renderNb(id, i, slots){
     </div>`;
 }
 
+let lastHistSig=null;
 function renderHist(ci, slots){
-  const rows=document.getElementById('histRows');
-  const prevScroll=rows.scrollTop;
-  const wasScrolledToBottom=rows.scrollHeight-rows.scrollTop-rows.clientHeight<10;
-
   const todayStr=localDateStr();
   const isPastDay=dp.value!==todayStr;
-  const maxI=isPastDay?96:ci; // для прошлого дня — все 96 слотов
+  const visible=isPastDay||histOpen;          // скрытую историю не строим
+  if(!visible){ lastHistSig=null; return; }    // сброс → при открытии гарантированно перерисуем
+  const maxI=isPastDay?96:ci;                  // для прошлого дня — все 96 слотов
 
+  // дешёвая сигнатура содержимого — тяжёлый innerHTML пересобираем только при изменении данных,
+  // а не на каждый 30с-тик render() (главный тормоз на телефоне).
+  let sig=dp.value+'|'+maxI;
+  for(let i=0;i<maxI;i++){ const s=slots[i]; sig+='|'+s.count+(s.sleep?'S':'')+(s.forgot?'F':''); }
+  if(sig===lastHistSig) return;
+  lastHistSig=sig;
+
+  const rows=document.getElementById('histRows');
+  const prevScroll=rows.scrollTop;
   let h='';
   for(let i=0; i<maxI; i++){
     const s=slots[i];
@@ -698,6 +738,7 @@ dp.value=localDateStr();
 function ensureToday(){
   const today = localDateStr();
   if(dp.value >= today) return false;
+  flushSave();            // дописать отложенную запись вчерашнего дня до сброса кеша
   dp.value = today;
   dayCache = emptyDay();  // оптимистично, чтобы текущий клик не упал в пустоту
   updateDateDisplay();
@@ -710,7 +751,7 @@ function ensureToday(){
 function updateDateDisplay(){
   const d=new Date(dp.value+'T12:00:00');
   const today=localDateStr();
-  const label=dp.value===today?'Сегодня, ':''
+  const label=dp.value===today?'Сегодня, ':'';
   document.getElementById('dateDisplay').textContent=label+d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
   document.getElementById('dateBadge').textContent=d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
 }
@@ -748,6 +789,7 @@ function toggleHist(){
   section.classList.toggle('open',histOpen);
   btn.textContent=histOpen?'↓ скрыть':'↑ прошлые слоты';
   if(histOpen){
+    render(); // построить историю сейчас (renderHist строит её только когда секция видна)
     // при открытии — прокрутить к последнему слоту
     setTimeout(()=>{
       const rows=document.getElementById('histRows');
@@ -816,7 +858,9 @@ function kScene(){
   </div>`;
 }
 
+let kburstInterval=null;
 function showAch(m){
+  clearInterval(kburstInterval); kburstInterval=null; // не плодим фоновые анимации между показами
   document.getElementById('achLbl').textContent=m.lbl;
   document.getElementById('achNum').textContent=m.n;
   document.getElementById('achNum').style.color=m.color;
@@ -832,7 +876,7 @@ function showAch(m){
         s.style.cssText=`width:${sz}px;height:${sz}px;left:${Math.random()*100}%;top:${Math.random()*80}%;--d:${1+Math.random()*2.5}s;animation-delay:${Math.random()*3}s`;
         ks.appendChild(s);
       }
-      kBurst();setInterval(kBurst,4200);
+      kBurst();kburstInterval=setInterval(kBurst,4200);
     },80);
   }
   spawnSparks(m.sparks);
@@ -863,6 +907,7 @@ function spawnSparks(colors){
 
 document.getElementById('achClose').addEventListener('click',()=>{
   document.getElementById('achOverlay').classList.remove('show');
+  clearInterval(kburstInterval); kburstInterval=null; // остановить анимацию частиц Кхечары
 });
 
 // ── TOAST ──────────────────────────────────────────────────────────────
@@ -873,6 +918,8 @@ function showToast(msg){
 }
 
 // ── EXPORT ─────────────────────────────────────────────────────────────
+// Значения сейчас только числа/время/Да-Нет — экранирование не нужно.
+// TODO: если в строки попадут произвольные тексты (заметки) — экранировать запятые/кавычки.
 function exportCSV(obj,filename){
   const rows=[['Дата','Время','Очки','Сон','Забыл']];
   for(const [date,slots] of Object.entries(obj)){
@@ -903,8 +950,10 @@ async function resetDay(){
   const dateStr=dp.value;
   if(!confirm(`Сбросить ВСЕ данные за ${dateStr}? Очки, сон и «забыл» за этот день обнулятся. Отменить можно кнопкой ↶.`)) return;
   pushUndo();
+  clearTimeout(saveTimer); pendingSaveDate=null; // отменить отложенную запись, чтобы не перетёрла сброс
   dayCache=emptyDay();
-  saveLocalDay(dateStr, dayCache); // зеркало → пусто, чтобы merge(max) не воскресил старое
+  saveLocalDay(dateStr, dayCache); // зеркало → пусто
+  markMonthDirty(dateStr);
   if(uid){
     try{ await dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){console.error(e);}
   }
@@ -930,7 +979,41 @@ window.switchTab=switchTab;
 
 // ── CALENDAR ───────────────────────────────────────────────────────────
 let calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
-let allDaysCache={};
+
+// Кеш данных по месяцам (сырые слоты по дням) — общий для вкладок «Календарь» и «Сон».
+// Грузим ТОЛЬКО показанный месяц (range-запрос по documentId), а не всю коллекцию —
+// иначе блокирующий .get() всех дней висел на слабой сети до минуты.
+const monthCache={};            // 'Y-M' -> { 'YYYY-MM-DD': slots(96) }
+const monthDirty={};            // 'Y-M' -> true: в этом месяце писали день, перечитать
+const monthKey=(y,m)=>`${y}-${m}`;
+function markMonthDirty(dateStr){
+  const p=String(dateStr).split('-'); const y=+p[0], mo=+p[1];
+  if(y&&mo) monthDirty[monthKey(y,mo-1)]=true;
+}
+function monthBounds(y,m){
+  const start=`${y}-${String(m+1).padStart(2,'0')}-01`;
+  const ny=m===11?y+1:y, nm=m===11?0:m+1;
+  const end=`${ny}-${String(nm+1).padStart(2,'0')}-01`; // эксклюзивная верхняя граница (учёт декабря)
+  return {start,end};
+}
+function fetchMonth(y,m,source){
+  const {start,end}=monthBounds(y,m);
+  const q=db.collection('users').doc(uid).collection('days')
+    .where(firebase.firestore.FieldPath.documentId(),'>=',start)
+    .where(firebase.firestore.FieldPath.documentId(),'<',end);
+  return q.get(source?{source}:undefined).then(snap=>{
+    const days={}; snap.forEach(d=>{ days[d.id]=normalizeSlots(d.data().slots||[]); }); return days;
+  });
+}
+// onUpdate(days) зовётся мгновенно из кеша (если есть), затем — со свежими данными сервера.
+// Никаких блокирующих await в рендере: сетка рисуется сразу, очки/сон дозаливаются.
+function loadMonth(y,m,onUpdate){
+  if(!uid){ onUpdate({}); return; }
+  const key=monthKey(y,m);
+  if(monthCache[key]!==undefined && !monthDirty[key]){ onUpdate(monthCache[key]); return; }
+  fetchMonth(y,m,'cache').then(d=>{ if(monthCache[key]===undefined){ monthCache[key]=d; onUpdate(d); } }).catch(()=>{});
+  fetchMonth(y,m,'server').then(fresh=>{ monthCache[key]=fresh; monthDirty[key]=false; onUpdate(fresh); }).catch(()=>{});
+}
 
 function scoreColor(n){
   if(n>=100) return '#c0185a';
@@ -940,33 +1023,28 @@ function scoreColor(n){
   return '#94a3b8';
 }
 
-async function loadAllDays(){
-  if(!uid) return;
-  try{
-    const snap=await db.collection('users').doc(uid).collection('days').get();
-    allDaysCache={};
-    snap.forEach(d=>{
-      const slots=normalizeSlots(d.data().slots||[]);
-      allDaysCache[d.id]=slots.reduce((a,s)=>a+Number(s.count||0),0);
-    });
-  }catch(e){console.error(e);}
+const MONTH_NAMES=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+
+function renderCalendar(){
+  const y=calYear, m=calMonth;
+  drawCalendar(y,m, monthCache[monthKey(y,m)]||{});                     // мгновенно: скелет + кеш
+  loadMonth(y,m, days=>{ if(y===calYear&&m===calMonth) drawCalendar(y,m,days); });
 }
-
-async function renderCalendar(){
-  await loadAllDays();
-  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-  document.getElementById('calMonthLbl').textContent=`${months[calMonth]} ${calYear}`;
-
+function drawCalendar(y,m,daysRaw){
+  document.getElementById('calMonthLbl').textContent=`${MONTH_NAMES[m]} ${y}`;
   const todayStr=localDateStr();
-  const first=new Date(calYear,calMonth,1);
-  const last=new Date(calYear,calMonth+1,0);
+  const first=new Date(y,m,1);
+  const last=new Date(y,m+1,0);
   let startDow=first.getDay(); if(startDow===0) startDow=7;
+
+  const sums={};
+  for(const ds in daysRaw) sums[ds]=daysRaw[ds].reduce((a,s)=>a+Number(s.count||0),0);
 
   let html='';
   for(let e=1;e<startDow;e++) html+='<div class="cal-cell empty"></div>';
   for(let d=1;d<=last.getDate();d++){
-    const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const score=allDaysCache[ds]||0;
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const score=sums[ds]||0;
     const color=scoreColor(score);
     const isToday=ds===todayStr;
     const pct=Math.min(100,Math.round(score/100*100));
@@ -979,11 +1057,8 @@ async function renderCalendar(){
   }
   document.getElementById('calGrid').innerHTML=html;
 
-  // месячные статы — фильтруем по показанному месяцу (calYear+calMonth)
-  const monthPrefix=`${calYear}-${String(calMonth+1).padStart(2,'0')}-`;
-  const monthVals=Object.entries(allDaysCache)
-    .filter(([k,v])=>k.startsWith(monthPrefix)&&v>0)
-    .map(([,v])=>v);
+  // статы — daysRaw уже только показанный месяц
+  const monthVals=Object.values(sums).filter(v=>v>0);
   const monthSum=monthVals.reduce((a,b)=>a+b,0);
   document.getElementById('calSum').textContent =monthSum||'—';
   document.getElementById('calAvg').textContent =monthVals.length?Math.round(monthSum/monthVals.length):'—';
@@ -1033,22 +1108,24 @@ function renderSleepSummary(){
 // ── SLEEP CALENDAR ─────────────────────────────────────────────────────
 let sleepCalYear=new Date().getFullYear(), sleepCalMonth=new Date().getMonth();
 
-async function renderSleepCalendar(){
-  await loadAllDaysRaw();
-  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-  document.getElementById('sleepCalMonthLbl').textContent=`${months[sleepCalMonth]} ${sleepCalYear}`;
-
+function renderSleepCalendar(){
+  const y=sleepCalYear, m=sleepCalMonth;
+  drawSleepCalendar(y,m, monthCache[monthKey(y,m)]||{});
+  loadMonth(y,m, days=>{ if(y===sleepCalYear&&m===sleepCalMonth) drawSleepCalendar(y,m,days); });
+}
+function drawSleepCalendar(y,m,daysRaw){
+  document.getElementById('sleepCalMonthLbl').textContent=`${MONTH_NAMES[m]} ${y}`;
   const todayStr=localDateStr();
-  const first=new Date(sleepCalYear,sleepCalMonth,1);
-  const last=new Date(sleepCalYear,sleepCalMonth+1,0);
+  const first=new Date(y,m,1);
+  const last=new Date(y,m+1,0);
   let startDow=first.getDay(); if(startDow===0) startDow=7;
 
   const monthMins=[];
   let html='';
   for(let e=1;e<startDow;e++) html+='<div class="cal-cell empty"></div>';
   for(let d=1;d<=last.getDate();d++){
-    const ds=`${sleepCalYear}-${String(sleepCalMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const slots=allDaysRawCache[ds]||[];
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const slots=daysRaw[ds]||[];
     const mins=calcSleepMinutes(slots);
     const isToday=ds===todayStr;
     if(mins>0) monthMins.push(mins);
@@ -1066,19 +1143,6 @@ async function renderSleepCalendar(){
   } else {
     document.getElementById('sleepCalAvg').textContent='—';
   }
-}
-
-// raw cache для всех слотов (не только сумм)
-let allDaysRawCache={};
-async function loadAllDaysRaw(){
-  if(!uid) return;
-  try{
-    const snap=await db.collection('users').doc(uid).collection('days').get();
-    allDaysRawCache={};
-    snap.forEach(d=>{
-      allDaysRawCache[d.id]=normalizeSlots(d.data().slots||[]);
-    });
-  }catch(e){console.error(e);}
 }
 
 document.getElementById('sleepCalPrev').addEventListener('click',()=>{
@@ -1167,30 +1231,43 @@ function tickTimer(){
   updateTimerUI(timerSeconds);
 }
 
+const TIMER_MAX_AGE = 60*60*1000; // 1ч — устаревший таймер не восстанавливаем
+// Восстановить таймер из localStorage, но только если он «свежий»: не старше часа и того же дня.
+// Иначе таймер, зависший со вчера, показывал бы огромный «+overtime».
+function restoreTimerFromStorage(){
+  const raw = localStorage.getItem('vajra_timer_start');
+  if(raw===null) return;
+  const ts = parseInt(raw,10);
+  const fresh = Number.isFinite(ts)
+    && (Date.now()-ts <= TIMER_MAX_AGE)
+    && (localDateStr(new Date(ts)) === localDateStr());
+  if(!fresh){
+    localStorage.removeItem('vajra_timer_start');
+    timerStartTs = null;
+    clearInterval(timerInterval); timerInterval = null;
+    updateTimerUI(TIMER_DURATION); // вернуть кружок на 3:00
+    return;
+  }
+  timerStartTs = ts;
+  clearInterval(timerInterval);
+  timerInterval = setInterval(tickTimer, 500);
+  tickTimer();
+}
+
 // при возврате из фона — катимся на сегодня (если picker отстал) и восстанавливаем таймер
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'visible'){
     ensureToday();
     render(); // пересчитываем текущий слот/дату — важно после смены часового пояса (посадка, выход из авиарежима)
-    const saved = localStorage.getItem('vajra_timer_start');
-    if(saved){
-      timerStartTs = parseInt(saved);
-      clearInterval(timerInterval);
-      timerInterval = setInterval(tickTimer, 500);
-      tickTimer();
-    }
+    restoreTimerFromStorage();
+  } else {
+    flushSave(); // уход в фон/закрытие PWA — дописать отложенную запись немедленно
   }
 });
+window.addEventListener('pagehide', flushSave);
 
 // восстанавливаем при загрузке страницы
-(function restoreTimer(){
-  const saved = localStorage.getItem('vajra_timer_start');
-  if(saved){
-    timerStartTs = parseInt(saved);
-    timerInterval = setInterval(tickTimer, 500);
-    tickTimer();
-  }
-})();
+restoreTimerFromStorage();
 
 function formatTimer(secs){
   const abs = Math.abs(secs);
