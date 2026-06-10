@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.4</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -303,11 +303,6 @@
 <!-- NEXT SLOT -->
 <div class="slots-wrap" id="nextSlotWrap" style="padding-top:8px"><div class="nb" id="nextSlot" style="display:none"></div></div>
 
-<!-- EXPORT -->
-<div class="export-bar">
-  <button class="export-btn" id="exportDay" disabled>Экспорт дня</button>
-  <button class="export-btn" id="exportAll" disabled>Экспорт всей истории</button>
-</div>
 <div style="padding:2px 16px 0;text-align:center">
   <button id="resetDay" style="border:none;background:transparent;color:#cbd5e1;font-size:11px;cursor:pointer;text-decoration:underline">сбросить день</button>
 </div>
@@ -351,6 +346,11 @@
       <div class="leg"><div class="leg-dot" style="background:#22c55e"></div>51–75</div>
       <div class="leg"><div class="leg-dot" style="background:#f59e0b"></div>76–99</div>
       <div class="leg"><div class="leg-dot" style="background:#c0185a"></div>100+ 🔥</div>
+    </div>
+    <!-- EXPORT (перенесён сюда из вкладки «Трекер») -->
+    <div class="export-bar" style="margin-top:16px;border-radius:10px">
+      <button class="export-btn" id="exportDay" disabled>Экспорт дня</button>
+      <button class="export-btn" id="exportAll" disabled>Экспорт всей истории</button>
     </div>
   </div>
 </div><!-- /tabContentCalendar -->
