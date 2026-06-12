@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.1</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.2</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -434,6 +434,12 @@ function readLocalDay(date){
     return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
+// dayCache при перекате/смене дня берём из зеркала ЭТОГО дня (а не пустой плейсхолдер).
+// Пустой плейсхолдер в модели newest-wins получал свежий ts и затирал реальные данные на сервере.
+function dayCacheFromMirror(date){
+  const m = readLocalDay(date);
+  return (m && m.slots && m.slots.length) ? normalizeSlots(m.slots) : emptyDay();
+}
 
 // Чистка старых зеркал/ачивок (> 60 дней) — иначе localStorage растёт без предела
 // и на iOS при переполнении начнёт тихо отказывать в записи (теряя клики).
@@ -460,6 +466,7 @@ const MILESTONES = [
 
 // ── STATE ──────────────────────────────────────────────────────────────
 let uid=null, unsubDay=null, dayCache=null;
+let dayLoaded=false; // снимок текущего дня с сервера получен? пока нет — не пишем (защита от затирания пустым плейсхолдером)
 
 // ачивки: один раз за день, только в момент достижения (не при загрузке)
 function achKey(dateStr){ return `vajra_ach_${dateStr}`; }
@@ -510,10 +517,10 @@ function attachDayListener(dateStr){
   if(!uid) return;
   flushSave();              // дописать отложенную запись прежнего дня ДО сброса кеша
   if(unsubDay){unsubDay();unsubDay=null;}
-  // Сбрасываем кеш СРАЗУ при смене дня (перекат суток в полночь / навигация по датам).
-  // Иначе в окне до прихода снапшота нового дня в dayCache лежат данные предыдущего дня,
-  // и касание/сохранение записывало их в документ нового дня → «проснулся, а очки уже набраны».
-  dayCache = emptyDay();
+  // При смене дня берём данные ИЗ ЗЕРКАЛА ЭТОГО дня (не пустой плейсхолдер и не данные прошлого дня).
+  // Так касание до прихода снапшота правит реальные данные, а не пустоту, которая затёрла бы сервер.
+  dayCache = dayCacheFromMirror(dateStr);
+  dayLoaded = false; // ждём первый снимок дня прежде чем разрешить запись (см. saveSlots)
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
@@ -543,6 +550,7 @@ function attachDayListener(dateStr){
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
     isLoadingDay=false;
+    dayLoaded=true; // снимок дня получен и сверен с зеркалом — теперь запись на сервер безопасна
   }, err=>console.error(err));
 }
 
@@ -551,6 +559,10 @@ function attachDayListener(dateStr){
 let saveTimer=null, pendingSaveDate=null;
 function saveSlots(){
   const dateStr=document.getElementById('datePicker').value;
+  // Вошли, но день ещё не загружен с сервера → НЕ пишем: иначе оптимистичный/пустой dayCache
+  // получил бы свежий ts в зеркале и в модели newest-wins затёр бы реальные данные на сервере.
+  // (Без логина пишем как раньше — там сервера нет, терять нечего.)
+  if(uid && !dayLoaded) return;
   saveLocalDay(dateStr, dayCache);          // ВСЕГДА, даже если не залогинены
   markMonthDirty(dateStr);                  // календарь/сон перечитают этот месяц
   if(!uid) return;
@@ -740,7 +752,7 @@ function ensureToday(){
   if(dp.value >= today) return false;
   flushSave();            // дописать отложенную запись вчерашнего дня до сброса кеша
   dp.value = today;
-  dayCache = emptyDay();  // оптимистично, чтобы текущий клик не упал в пустоту
+  dayCache = dayCacheFromMirror(today);  // данные сегодня из зеркала, не пустой плейсхолдер (см. dayCacheFromMirror)
   updateDateDisplay();
   const stb = document.getElementById('sleepTilBtn');
   if(stb){ stb.textContent='Сон до текущего времени'; stb.className='sleep-til-btn'; }
