@@ -194,7 +194,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.2</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.3</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -444,6 +444,7 @@ const MILESTONES = [
 
 // ── STATE ──────────────────────────────────────────────────────────────
 let uid=null, unsubDay=null, dayCache=null;
+let dayLoaded=false; // снимок текущего дня с сервера получен? до этого НЕ пишем на сервер (защита от затирания пустым)
 
 // ачивки: один раз за день, только в момент достижения (не при загрузке)
 function achKey(dateStr){ return `vajra_ach_${dateStr}`; }
@@ -493,6 +494,7 @@ auth.onAuthStateChanged(user=>{
 function attachDayListener(dateStr){
   if(!uid) return;
   if(unsubDay){unsubDay();unsubDay=null;}
+  dayLoaded=false; // новый день/слушатель — ждём первый снимок прежде чем разрешить запись на сервер
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const local = readLocalDay(dateStr);
@@ -514,13 +516,16 @@ function attachDayListener(dateStr){
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
     isLoadingDay=false;
+    dayLoaded=true; // снимок получен и слит с локальной копией — теперь записи на сервер безопасны
   }, err=>console.error(err));
 }
 
 async function saveSlots(){
   const dateStr=document.getElementById('datePicker').value;
   saveLocalDay(dateStr, dayCache);  // ВСЕГДА — даже если не залогинены, не теряем клики
-  if(!uid) return;
+  // Не пишем на сервер, пока не получили снимок дня: иначе оптимистичный/пустой dayCache
+  // мог бы затереть реальные данные. Клик уже в localStorage — onSnapshot сольёт его по максимуму.
+  if(!uid || !dayLoaded) return;
   try{
     await dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
   }catch(e){console.error(e);}
@@ -684,7 +689,11 @@ function ensureToday(){
   const today = localDateStr();
   if(dp.value >= today) return false;
   dp.value = today;
-  dayCache = emptyDay();  // оптимистично, чтобы текущий клик не упал в пустоту
+  // НЕ обнуляем: берём сегодняшние данные из локальной копии, если они есть.
+  // Если копии нет — пустой день, но saveSlots не запишет его на сервер до прихода снимка (dayLoaded),
+  // а onSnapshot сольёт с реальными серверными данными по максимуму. Так день не теряется.
+  const mirror = readLocalDay(today);
+  dayCache = (mirror && mirror.slots && mirror.slots.length) ? normalizeSlots(mirror.slots) : emptyDay();
   updateDateDisplay();
   const stb = document.getElementById('sleepTilBtn');
   if(stb){ stb.textContent='Сон до текущего времени'; stb.className='sleep-til-btn'; }
