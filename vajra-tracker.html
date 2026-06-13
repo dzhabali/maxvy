@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.2</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.3</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -466,7 +466,8 @@ const MILESTONES = [
 
 // ── STATE ──────────────────────────────────────────────────────────────
 let uid=null, unsubDay=null, dayCache=null;
-let dayLoaded=false; // снимок текущего дня с сервера получен? пока нет — не пишем (защита от затирания пустым плейсхолдером)
+let dayLoaded=false; // снимок текущего дня с сервера получен?
+let daySeeded=false; // dayCache засеян реальными данными из зеркала (а не пустой плейсхолдер)?
 
 // ачивки: один раз за день, только в момент достижения (не при загрузке)
 function achKey(dateStr){ return `vajra_ach_${dateStr}`; }
@@ -519,8 +520,11 @@ function attachDayListener(dateStr){
   if(unsubDay){unsubDay();unsubDay=null;}
   // При смене дня берём данные ИЗ ЗЕРКАЛА ЭТОГО дня (не пустой плейсхолдер и не данные прошлого дня).
   // Так касание до прихода снапшота правит реальные данные, а не пустоту, которая затёрла бы сервер.
-  dayCache = dayCacheFromMirror(dateStr);
-  dayLoaded = false; // ждём первый снимок дня прежде чем разрешить запись (см. saveSlots)
+  const mirror = readLocalDay(dateStr);
+  const mirrorHas = !!(mirror && mirror.slots && mirror.slots.length);
+  dayCache = mirrorHas ? normalizeSlots(mirror.slots) : emptyDay();
+  daySeeded = mirrorHas;  // данные дня уже есть локально → правки пишем сразу, клик не теряется
+  dayLoaded = false;      // снимок дня с сервера ещё не пришёл
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
@@ -559,10 +563,11 @@ function attachDayListener(dateStr){
 let saveTimer=null, pendingSaveDate=null;
 function saveSlots(){
   const dateStr=document.getElementById('datePicker').value;
-  // Вошли, но день ещё не загружен с сервера → НЕ пишем: иначе оптимистичный/пустой dayCache
-  // получил бы свежий ts в зеркале и в модели newest-wins затёр бы реальные данные на сервере.
-  // (Без логина пишем как раньше — там сервера нет, терять нечего.)
-  if(uid && !dayLoaded) return;
+  // Гасим запись ТОЛЬКО когда данных дня нет ни локально (зеркало пустое), ни ещё с сервера:
+  // тогда пустой плейсхолдер+клик мог бы в newest-wins затереть реальные данные на сервере.
+  // Если зеркало дня есть (обычный случай — в т.ч. правка прошлых дней, отметка «Сон») —
+  // пишем сразу, клик НЕ теряется. (Без логина тоже пишем — сервера нет, терять нечего.)
+  if(uid && !dayLoaded && !daySeeded) return;
   saveLocalDay(dateStr, dayCache);          // ВСЕГДА, даже если не залогинены
   markMonthDirty(dateStr);                  // календарь/сон перечитают этот месяц
   if(!uid) return;
