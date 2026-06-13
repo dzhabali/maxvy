@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.3</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.4</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -1232,6 +1232,7 @@ document.getElementById('undoBtn').addEventListener('click', popUndo);
 // Вместо счётчика секунд — сохраняем timestamp запуска.
 // При возврате из фона вычисляем сколько реально прошло.
 const TIMER_DURATION = 3 * 60;
+const TIMER_MAX_OVERTIME = 12 * 60 * 60; // 12ч — дольше «+overtime» не считаем, замираем на +12:00
 const CIRCUMFERENCE = 2 * Math.PI * 52;
 let timerInterval = null;
 let timerStartTs = null; // timestamp момента нажатия +1
@@ -1247,20 +1248,24 @@ function startTimer(){
 function tickTimer(){
   if(!timerStartTs) return;
   const elapsed = Math.floor((Date.now() - timerStartTs) / 1000);
-  const timerSeconds = TIMER_DURATION - elapsed; // может уйти в минус
+  let timerSeconds = TIMER_DURATION - elapsed; // может уйти в минус (overtime = время сверх 3:00)
+  if(-timerSeconds >= TIMER_MAX_OVERTIME){
+    // прошло 12ч с последнего нажатия — замираем на +12:00 и больше не тикаем
+    updateTimerUI(-TIMER_MAX_OVERTIME);
+    clearInterval(timerInterval); timerInterval = null;
+    return;
+  }
   updateTimerUI(timerSeconds);
 }
 
-const TIMER_MAX_AGE = 60*60*1000; // 1ч — устаревший таймер не восстанавливаем
-// Восстановить таймер из localStorage, но только если он «свежий»: не старше часа и того же дня.
-// Иначе таймер, зависший со вчера, показывал бы огромный «+overtime».
+const TIMER_MAX_AGE = (TIMER_DURATION + TIMER_MAX_OVERTIME) * 1000; // ~12ч — пока счётчик ещё «живой»
+// Восстановить таймер из localStorage, если он в пределах 12-часового окна (день не важен — счёт
+// идёт и через полночь). Старше 12ч — не восстанавливаем, кружок возвращается на 3:00.
 function restoreTimerFromStorage(){
   const raw = localStorage.getItem('vajra_timer_start');
   if(raw===null) return;
   const ts = parseInt(raw,10);
-  const fresh = Number.isFinite(ts)
-    && (Date.now()-ts <= TIMER_MAX_AGE)
-    && (localDateStr(new Date(ts)) === localDateStr());
+  const fresh = Number.isFinite(ts) && (Date.now()-ts <= TIMER_MAX_AGE);
   if(!fresh){
     localStorage.removeItem('vajra_timer_start');
     timerStartTs = null;
@@ -1291,9 +1296,13 @@ restoreTimerFromStorage();
 
 function formatTimer(secs){
   const abs = Math.abs(secs);
-  const m = Math.floor(abs / 60);
+  const sign = secs < 0 ? '+' : '';
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
   const s = abs % 60;
-  return `${secs < 0 ? '+' : ''}${m}:${String(s).padStart(2,'0')}`;
+  // от часа и больше — показываем Ч:ММ (секунды опускаем, иначе не влезает и мельтешит)
+  if(h > 0) return `${sign}${h}:${String(m).padStart(2,'0')}`;
+  return `${sign}${m}:${String(s).padStart(2,'0')}`;
 }
 
 function updateTimerUI(timerSeconds){
