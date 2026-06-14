@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.4</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.5</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -528,28 +528,28 @@ function attachDayListener(dateStr){
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
-    if(snap.metadata.hasPendingWrites){
-      // оптимистичный снимок нашей же записи: serverSlots уже включает её (latency-compensation).
-      // Зеркало НЕ трогаем — оно только что записано saveSlots с верным ts.
-      dayCache = serverSlots;
+    // newest-wins по КЛИЕНТСКОЙ метке (clientTs = Date.now() тапа), той же шкале, что у зеркала.
+    // updatedAt (serverTimestamp) для merge НЕ годится — это время КОММИТА, всегда позже тапа,
+    // из-за чего ещё не доехавший новый тап ложно «старше» эха предыдущей записи → реверт.
+    // Сверяем в ОБЕИХ ветках (вкл. hasPendingWrites): тап в полёте всегда новее эха → не теряется.
+    const serverClientTs = (snap.exists && Number.isFinite(snap.data().clientTs)) ? snap.data().clientTs : 0;
+    const local    = readLocalDay(dateStr);
+    const localTs  = (local && Number.isFinite(local.ts)) ? local.ts : 0;
+    const localHas = !!(local && local.slots && local.slots.length);
+    if(localHas && localTs > serverClientTs){
+      // У зеркала есть правки новее серверного снимка (в т.ч. тап в полёте) — держим локальное.
+      dayCache = normalizeSlots(local.slots);
+      // Доносим вверх только на ПОДТВЕРЖДЁННОМ снимке; на оптимистичном эхе свою же запись
+      // не дублируем — её добьёт запланированный flushSave.
+      if(!snap.metadata.hasPendingWrites){
+        try{ await dayRef(uid,dateStr).set({slots:dayCache, clientTs:localTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
+      }
     } else {
-      // newest-wins вместо Math.max: зеркало берём только если оно новее серверного снимка
-      // (несинканные оффлайн-правки) и тогда же синкаем вверх. Никакого «воскрешения» большего.
-      const local = readLocalDay(dateStr);
-      const serverTs = (snap.exists && snap.data().updatedAt) ? snap.data().updatedAt.toMillis() : 0;
-      const localTs  = (local && Number.isFinite(local.ts)) ? local.ts : 0;
-      const localHas = !!(local && local.slots && local.slots.length);
-      if(localHas && localTs>serverTs){
-        dayCache = normalizeSlots(local.slots);
-        try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
-        // зеркало уже актуально (ts=localTs) — не переписываем
-      } else {
-        dayCache = serverSlots;
-        saveLocalDay(dateStr, dayCache, serverTs); // синкаем зеркало с сервером (ts=serverTs, чтобы чистое чтение не было ложно «новее»)
-      }
-      if(!snap.exists && !localHas){
-        try{ await dayRef(uid,dateStr).set({slots:dayCache, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
-      }
+      dayCache = serverSlots;
+      saveLocalDay(dateStr, dayCache, serverClientTs); // зеркало в клиентской шкале, как и сервер
+    }
+    if(!snap.exists && !localHas && !snap.metadata.hasPendingWrites){
+      try{ await dayRef(uid,dateStr).set({slots:dayCache, clientTs:localTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
     }
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
@@ -579,7 +579,11 @@ function flushSave(){
   clearTimeout(saveTimer); saveTimer=null;
   if(!uid || !pendingSaveDate) return;
   const dateStr=pendingSaveDate; pendingSaveDate=null;
-  dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(e=>console.error(e));
+  // clientTs = ts зеркала (метка последнего тапа, попавшего в запись) — для newest-wins merge
+  // в onSnapshot сравниваем «как с как», а не с серверным временем коммита (см. attachDayListener).
+  const m = readLocalDay(dateStr);
+  const clientTs = (m && Number.isFinite(m.ts)) ? m.ts : Date.now();
+  dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), clientTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(e=>console.error(e));
 }
 
 // ── RENDER ─────────────────────────────────────────────────────────────
