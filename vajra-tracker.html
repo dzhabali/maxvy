@@ -208,7 +208,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.5.5</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.0</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -410,7 +410,7 @@ function localDateStr(d = new Date()){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 const slotTime = i => `${String(Math.floor(i/4)).padStart(2,'0')}:${String((i%4)*15).padStart(2,'0')}`;
-const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0,sleep:false,forgot:false}));
+const emptyDay = () => Array.from({length:96},(_,i)=>({time:slotTime(i),count:0,sleep:false,forgot:false,t:0}));
 const dayRef   = (uid,d) => db.collection('users').doc(uid).collection('days').doc(d);
 // Всегда ровно 96 слотов: emptyDay() как база, накладываем пришедшие по индексу.
 // Защищает render() от краша на неполном/битом документе (`slots[ci]` undefined).
@@ -418,9 +418,25 @@ const normalizeSlots = arr => {
   const src = Array.isArray(arr) ? arr : [];
   return Array.from({length:96},(_,i)=>{
     const s = src[i] || {};
-    return { time:slotTime(i), count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot) };
+    // t = метка последней правки слота (клиентское Date.now()). 0 = не трогали / старые данные.
+    return { time:slotTime(i), count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot), t:Number(s.t)||0 };
   });
 };
+
+// Слияние ПО СЛОТАМ (last-writer-wins на уровне слота). Идемпотентно и коммутативно →
+// сходится при любом порядке/гонках/оффлайне/нескольких контекстах и НЕ теряет правки
+// ДРУГИХ слотов (в отличие от старого «весь день одним куском»).
+//  - разные t → берём слот с более свежей правкой (поддерживает «минус» и снятие отметок);
+//  - одинаковые t (не трогали с синка / миграция старых данных t=0) → объединяем без потерь
+//    (max по очкам, OR по сон/забыл) — пустышка t=0 при этом не может затереть реальные данные.
+function mergeSlots(a, b){
+  const A = normalizeSlots(a), B = normalizeSlots(b);
+  return Array.from({length:96},(_,i)=>{
+    const x = A[i], y = B[i];
+    if(x.t !== y.t) return x.t > y.t ? x : y;
+    return { time:x.time, count:Math.max(x.count,y.count), sleep:x.sleep||y.sleep, forgot:x.forgot||y.forgot, t:x.t };
+  });
+}
 
 // localStorage mirror — оффлайн-страховка от потери кликов.
 // ts = время ПОСЛЕДНЕЙ записи данных в зеркало (для newest-wins при синке с сервером).
@@ -528,33 +544,21 @@ function attachDayListener(dateStr){
   unsubDay = dayRef(uid,dateStr).onSnapshot(async snap=>{
     isLoadingDay=true;
     const serverSlots = snap.exists ? normalizeSlots(snap.data().slots||[]) : emptyDay();
-    // newest-wins по КЛИЕНТСКОЙ метке (clientTs = Date.now() тапа), той же шкале, что у зеркала.
-    // updatedAt (serverTimestamp) для merge НЕ годится — это время КОММИТА, всегда позже тапа,
-    // из-за чего ещё не доехавший новый тап ложно «старше» эха предыдущей записи → реверт.
-    // Сверяем в ОБЕИХ ветках (вкл. hasPendingWrites): тап в полёте всегда новее эха → не теряется.
-    const serverClientTs = (snap.exists && Number.isFinite(snap.data().clientTs)) ? snap.data().clientTs : 0;
-    const local    = readLocalDay(dateStr);
-    const localTs  = (local && Number.isFinite(local.ts)) ? local.ts : 0;
-    const localHas = !!(local && local.slots && local.slots.length);
-    if(localHas && localTs > serverClientTs){
-      // У зеркала есть правки новее серверного снимка (в т.ч. тап в полёте) — держим локальное.
-      dayCache = normalizeSlots(local.slots);
-      // Доносим вверх только на ПОДТВЕРЖДЁННОМ снимке; на оптимистичном эхе свою же запись
-      // не дублируем — её добьёт запланированный flushSave.
-      if(!snap.metadata.hasPendingWrites){
-        try{ await dayRef(uid,dateStr).set({slots:dayCache, clientTs:localTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
-      }
-    } else {
-      dayCache = serverSlots;
-      saveLocalDay(dateStr, dayCache, serverClientTs); // зеркало в клиентской шкале, как и сервер
-    }
-    if(!snap.exists && !localHas && !snap.metadata.hasPendingWrites){
-      try{ await dayRef(uid,dateStr).set({slots:dayCache, clientTs:localTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()}); }catch(e){}
+    // Сливаем ПО СЛОТАМ: текущий dayCache (включает наши локальные правки/зеркало) ⊕ сервер.
+    // Без потерь и идемпотентно — поэтому отдельная обработка hasPendingWrites не нужна
+    // (своё же эхо слияние оставляет без изменений), и пустой плейсхолдер не может затереть сервер.
+    const base   = dayCache || dayCacheFromMirror(dateStr);
+    const merged = mergeSlots(base, serverSlots);
+    dayCache = merged;
+    saveLocalDay(dateStr, merged);
+    // Если после слияния у нас есть слоты новее серверных — доносим наверх (на подтверждённом снимке).
+    if(!snap.metadata.hasPendingWrites && JSON.stringify(merged) !== JSON.stringify(serverSlots)){
+      try{ await dayRef(uid,dateStr).set({slots:merged, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }catch(e){}
     }
     prevTotal = dayCache.reduce((a,s)=>a+Number(s.count||0),0);
     render(true);
     isLoadingDay=false;
-    dayLoaded=true; // снимок дня получен и сверен с зеркалом — теперь запись на сервер безопасна
+    dayLoaded=true;
   }, err=>console.error(err));
 }
 
@@ -563,12 +567,9 @@ function attachDayListener(dateStr){
 let saveTimer=null, pendingSaveDate=null;
 function saveSlots(){
   const dateStr=document.getElementById('datePicker').value;
-  // Гасим запись ТОЛЬКО когда данных дня нет ни локально (зеркало пустое), ни ещё с сервера:
-  // тогда пустой плейсхолдер+клик мог бы в newest-wins затереть реальные данные на сервере.
-  // Если зеркало дня есть (обычный случай — в т.ч. правка прошлых дней, отметка «Сон») —
-  // пишем сразу, клик НЕ теряется. (Без логина тоже пишем — сервера нет, терять нечего.)
-  if(uid && !dayLoaded && !daySeeded) return;
-  saveLocalDay(dateStr, dayCache);          // ВСЕГДА, даже если не залогинены
+  // Гейт больше не нужен: послотовое слияние не теряет правки и не даёт пустышке затереть сервер,
+  // поэтому пишем всегда — клик не теряется (раньше именно гейт «глотал» тапы на прошлых днях).
+  saveLocalDay(dateStr, dayCache);          // зеркало мгновенно — оффлайн-страховка
   markMonthDirty(dateStr);                  // календарь/сон перечитают этот месяц
   if(!uid) return;
   pendingSaveDate=dateStr;
@@ -579,11 +580,8 @@ function flushSave(){
   clearTimeout(saveTimer); saveTimer=null;
   if(!uid || !pendingSaveDate) return;
   const dateStr=pendingSaveDate; pendingSaveDate=null;
-  // clientTs = ts зеркала (метка последнего тапа, попавшего в запись) — для newest-wins merge
-  // в onSnapshot сравниваем «как с как», а не с серверным временем коммита (см. attachDayListener).
-  const m = readLocalDay(dateStr);
-  const clientTs = (m && Number.isFinite(m.ts)) ? m.ts : Date.now();
-  dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), clientTs, updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(e=>console.error(e));
+  // Пишем послотовые данные (с метками t). onSnapshot на той стороне сольёт по слотам — без потерь.
+  dayRef(uid,dateStr).set({slots:normalizeSlots(dayCache), updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(e=>console.error(e));
 }
 
 // ── RENDER ─────────────────────────────────────────────────────────────
@@ -708,20 +706,20 @@ document.getElementById('mainBtn').addEventListener('click',()=>{
   ensureToday();
   pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
-  slots[ci].count++; dayCache=slots; render(); saveSlots();
+  slots[ci].count++; slots[ci].t=Date.now(); dayCache=slots; render(); saveSlots();
   startTimer(); // перезапускаем таймер при каждом нажатии
 });
 document.getElementById('sleepBtn').addEventListener('click',()=>{
   ensureToday();
   pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
-  slots[ci].sleep=!slots[ci].sleep; dayCache=slots; render(); saveSlots();
+  slots[ci].sleep=!slots[ci].sleep; slots[ci].t=Date.now(); dayCache=slots; render(); saveSlots();
 });
 document.getElementById('forgotBtn').addEventListener('click',()=>{
   ensureToday();
   pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
-  slots[ci].forgot=!slots[ci].forgot; dayCache=slots; render(); saveSlots();
+  slots[ci].forgot=!slots[ci].forgot; slots[ci].t=Date.now(); dayCache=slots; render(); saveSlots();
 });
 
 document.addEventListener('click',e=>{
@@ -734,6 +732,7 @@ document.addEventListener('click',e=>{
   else if(act==='minus') slots[i].count=Math.max(0,slots[i].count-1);
   else if(act==='sleep') slots[i].sleep=!slots[i].sleep;
   else if(act==='forgot') slots[i].forgot=!slots[i].forgot;
+  slots[i].t=Date.now();
   dayCache=slots; render(); saveSlots();
 });
 
@@ -743,7 +742,8 @@ document.getElementById('sleepTilBtn').addEventListener('click',()=>{
   if(!confirm(`Подтверждаешь? Сон с 0:00 до ${slotTime(ci)} будет отмечен.`)) return;
   pushUndo();
   const slots=dayCache||emptyDay();
-  for(let i=0;i<ci;i++) slots[i].sleep=true;
+  const now=Date.now();
+  for(let i=0;i<ci;i++){ slots[i].sleep=true; slots[i].t=now; }
   dayCache=slots;
   const btn=document.getElementById('sleepTilBtn');
   btn.textContent=`Сон до ${slotTime(ci)} — отмечено ✓`;
@@ -972,7 +972,9 @@ async function resetDay(){
   if(!confirm(`Сбросить ВСЕ данные за ${dateStr}? Очки, сон и «забыл» за этот день обнулятся. Отменить можно кнопкой ↶.`)) return;
   pushUndo();
   clearTimeout(saveTimer); pendingSaveDate=null; // отменить отложенную запись, чтобы не перетёрла сброс
-  dayCache=emptyDay();
+  // Все слоты помечаем свежим t — иначе послотовое слияние воскресит данные с сервера.
+  const now=Date.now();
+  dayCache=emptyDay().map(s=>({...s,t:now}));
   saveLocalDay(dateStr, dayCache); // зеркало → пусто
   markMonthDirty(dateStr);
   if(uid){
@@ -1202,7 +1204,14 @@ function popUndo(){
   for(let i = undoStack.length - 1; i >= 0; i--){
     if(undoStack[i].date === curDate){
       const snap = undoStack.splice(i, 1)[0];
-      dayCache = snap.slots;
+      // Помечаем свежим t только изменённые откатом слоты — иначе слияние «не заметит» откат.
+      const restored = normalizeSlots(snap.slots);
+      const cur = normalizeSlots(dayCache||emptyDay());
+      const now = Date.now();
+      for(let k=0;k<96;k++){
+        if(restored[k].count!==cur[k].count || restored[k].sleep!==cur[k].sleep || restored[k].forgot!==cur[k].forgot) restored[k].t=now;
+      }
+      dayCache = restored;
       try{ localStorage.setItem('vajra_undo', JSON.stringify(undoStack)); }catch(e){}
       render(); saveSlots();
       updateUndoBtn();
