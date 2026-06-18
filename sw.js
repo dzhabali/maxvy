@@ -10,7 +10,7 @@
  *
  * Версию кэша поднимать при изменении состава precache.
  */
-const CACHE = 'vajra-v13';
+const CACHE = 'vajra-v14';
 
 // gstatic-скрипты Firebase кэшируем как opaque (no-cors) — этого достаточно для <script src>.
 const FIREBASE_LIBS = [

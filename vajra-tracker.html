@@ -122,7 +122,6 @@
   .ls-timer-slot{font-size:clamp(13px,2.4vh,17px);color:rgba(255,255,255,.5)}
   .ls-count-wrap{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0}
   .ls-num{font-size:clamp(90px,40vh,210px);font-weight:200;line-height:.82;letter-spacing:-4px;font-variant-numeric:tabular-nums}
-  .ls-goal{font-size:clamp(16px,3vh,22px);font-weight:600;color:rgba(255,255,255,.5);margin-top:2px}
   .ls-hint{font-size:clamp(11px,2vh,14px);color:rgba(255,255,255,.4);margin-top:10px}
   .ls-bar{position:absolute;left:0;bottom:0;height:5px;background:rgba(255,255,255,.85);width:0%;transition:width .35s cubic-bezier(.34,1.56,.64,1)}
 
@@ -232,7 +231,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.2</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.3</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -435,10 +434,9 @@
       <span class="ls-timer-slot" id="lsTimeBadge"></span>
     </div>
   </div>
-  <!-- счётчик справа -->
+  <!-- счётчик справа (счётчик текущего слота, как в портрете) -->
   <div class="ls-count-wrap">
     <span class="ls-num" id="lsNum">0</span>
-    <span class="ls-goal" id="lsGoal">/ 100</span>
     <span class="ls-hint">нажми — вспомнил</span>
   </div>
   <div class="ls-bar" id="lsBar"></div>
@@ -684,8 +682,8 @@ function render(autoScroll=false){
   document.getElementById('ftLabel').textContent=`${t} / 100`;
   document.getElementById('ftPct').textContent=`${pct}%`;
 
-  // landscape quick-tap
-  document.getElementById('lsNum').textContent=t;
+  // landscape quick-tap — счётчик текущего слота (как mainCnt в портрете), бар = прогресс дня
+  document.getElementById('lsNum').textContent=slots[ci].count;
   document.getElementById('lsBar').style.width=pct+'%';
   document.getElementById('lsTimeBadge').textContent=slotTime(ci);
 
