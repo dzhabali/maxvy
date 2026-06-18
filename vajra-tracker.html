@@ -102,6 +102,31 @@
   .ft-label{font-size:13px;font-weight:600;color:#111;white-space:nowrap}
   .ft-pct{font-size:12px;color:#6b7280;white-space:nowrap}
 
+  /* LANDSCAPE QUICK-TAP — телефон горизонтально: только +/- на весь экран */
+  #landscapeMode{display:none}
+  @media (orientation:landscape) and (max-height:560px){
+    #landscapeMode{
+      display:flex;position:fixed;inset:0;z-index:90;background:#0d4a3a;
+      flex-direction:row;align-items:stretch;
+      user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
+      touch-action:manipulation;
+      padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+  }
+  .ls-plus{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;background:transparent;border:none;color:#fff;cursor:pointer;padding:0;
+    -webkit-tap-highlight-color:transparent;transition:background .1s}
+  .ls-plus:active{background:rgba(255,255,255,.07)}
+  .ls-num{font-size:clamp(72px,30vh,150px);font-weight:200;line-height:.85;letter-spacing:-3px;font-variant-numeric:tabular-nums}
+  .ls-goal{font-size:17px;font-weight:600;color:rgba(255,255,255,.5)}
+  .ls-hint{position:absolute;bottom:14px;font-size:12px;color:rgba(255,255,255,.35)}
+  .ls-minus{flex:0 0 24%;max-width:220px;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.16);border:none;border-left:1px solid rgba(255,255,255,.1);
+    color:rgba(255,255,255,.82);font-size:72px;font-weight:100;line-height:1;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;transition:background .1s}
+  .ls-minus:active{background:rgba(0,0,0,.34)}
+  .ls-bar{position:absolute;left:0;bottom:0;height:5px;background:rgba(255,255,255,.85);width:0%;transition:width .35s cubic-bezier(.34,1.56,.64,1)}
+
   /* ACHIEVEMENT OVERLAY */
   .ach-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center;padding:20px}
   .ach-overlay.show{display:flex}
@@ -208,7 +233,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.0</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.1</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -386,6 +411,18 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- LANDSCAPE QUICK-TAP (телефон горизонтально) -->
+<div id="landscapeMode">
+  <button class="ls-plus" id="lsPlus" aria-label="Вспомнил +1">
+    <svg width="34" height="34" viewBox="0 0 20 20" style="opacity:.9"><use href="#gem"/></svg>
+    <span class="ls-num" id="lsNum">0</span>
+    <span class="ls-goal" id="lsGoal">/ 100</span>
+    <span class="ls-hint">нажми — вспомнил</span>
+  </button>
+  <button class="ls-minus" id="lsMinus" aria-label="Минус один">−</button>
+  <div class="ls-bar" id="lsBar"></div>
+</div>
 
 <script>
 // ── FIREBASE CONFIG ────────────────────────────────────────────────────
@@ -627,6 +664,10 @@ function render(autoScroll=false){
   document.getElementById('ftLabel').textContent=`${t} / 100`;
   document.getElementById('ftPct').textContent=`${pct}%`;
 
+  // landscape quick-tap
+  document.getElementById('lsNum').textContent=t;
+  document.getElementById('lsBar').style.width=pct+'%';
+
   // sleep / forgot buttons
   const sb=document.getElementById('sleepBtn');
   sb.textContent=slots[ci].sleep?'Сон ✓':'Сон';
@@ -702,13 +743,21 @@ function renderHist(ci, slots){
 }
 
 // ── INTERACTIONS ───────────────────────────────────────────────────────
-document.getElementById('mainBtn').addEventListener('click',()=>{
+// общий инкремент/декремент текущего слота (главная кнопка + landscape)
+function bumpCurrent(d){
   ensureToday();
   pushUndo();
   const ci=curIdx(); const slots=dayCache||emptyDay();
-  slots[ci].count++; slots[ci].t=Date.now(); dayCache=slots; render(); saveSlots();
+  slots[ci].count=Math.max(0,(slots[ci].count||0)+d); slots[ci].t=Date.now();
+  dayCache=slots; render(); saveSlots();
+}
+document.getElementById('mainBtn').addEventListener('click',()=>{
+  bumpCurrent(1);
   startTimer(); // перезапускаем таймер при каждом нажатии
 });
+// landscape: вся левая зона = +1, узкая правая = −1
+document.getElementById('lsPlus').addEventListener('click',()=>{ bumpCurrent(1); startTimer(); });
+document.getElementById('lsMinus').addEventListener('click',e=>{ e.stopPropagation(); bumpCurrent(-1); });
 document.getElementById('sleepBtn').addEventListener('click',()=>{
   ensureToday();
   pushUndo();
