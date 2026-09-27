@@ -231,7 +231,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.3</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.4</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -374,6 +374,7 @@
     <div class="export-bar" style="margin-top:16px;border-radius:10px">
       <button class="export-btn" id="exportDay" disabled>Экспорт дня</button>
       <button class="export-btn" id="exportAll" disabled>Экспорт всей истории</button>
+      <button class="export-btn" id="exportJson" disabled title="Полная копия всех дней из облака в JSON — для переезда на свой сервер">Полная копия (JSON)</button>
     </div>
   </div>
 </div><!-- /tabContentCalendar -->
@@ -571,6 +572,7 @@ auth.onAuthStateChanged(user=>{
     document.getElementById('btnLogout').style.display='';
     document.getElementById('exportDay').disabled=false;
     document.getElementById('exportAll').disabled=false;
+    document.getElementById('exportJson').disabled=false;
     attachDayListener(document.getElementById('datePicker').value);
   } else {
     uid=null; dayCache=null;
@@ -579,6 +581,7 @@ auth.onAuthStateChanged(user=>{
     document.getElementById('btnLogout').style.display='none';
     document.getElementById('exportDay').disabled=true;
     document.getElementById('exportAll').disabled=true;
+    document.getElementById('exportJson').disabled=true;
     if(unsubDay){unsubDay();unsubDay=null;}
     render();
   }
@@ -1028,6 +1031,25 @@ document.getElementById('exportAll').addEventListener('click',async()=>{
   const snap=await db.collection('users').doc(uid).collection('days').get();
   const obj={};snap.forEach(d=>obj[d.id]=normalizeSlots(d.data().slots||[]));
   exportCSV(obj,'vajra_all.csv');
+});
+
+// Полная копия (JSON): все дни из облака как есть (слоты с метками t) + локальные зеркала, которых нет в облаке.
+// Для переезда с Firebase на свой сервер (life.maxdzhabali.com/vajra) — ничего не теряется.
+document.getElementById('exportJson').addEventListener('click',async()=>{
+  if(!uid)return;
+  const btn=document.getElementById('exportJson'); btn.disabled=true; btn.textContent='собираю…';
+  try{
+    const snap=await db.collection('users').doc(uid).collection('days').get({source:'server'});
+    const days={};
+    snap.forEach(d=>{ const x=d.data(); days[d.id]={slots:x.slots||[], updatedAt:x.updatedAt&&x.updatedAt.toDate?x.updatedAt.toDate().toISOString():null}; });
+    const local={};
+    for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); const m=k&&k.match(/^vajra_day_(\d{4}-\d{2}-\d{2})$/); if(m){ try{ local[m[1]]=JSON.parse(localStorage.getItem(k)); }catch(e){} } }
+    const out={app:'vajra-tracker', version:'v2.6.4', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
+    const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vajra-export-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
+    showToast('Скачано дней: '+Object.keys(days).length);
+  }catch(e){ showToast('Не получилось: '+e.message); }
+  btn.disabled=false; btn.textContent='Полная копия (JSON)';
 });
 
 // ── СБРОС ДНЯ ──────────────────────────────────────────────────────────
