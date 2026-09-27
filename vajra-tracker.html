@@ -208,10 +208,9 @@
   .timer-hint{font-size:11px;color:#9ca3af;margin-top:2px}
 </style>
 
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+<!-- С 2026-09 данные на своём сервере life.maxdzhabali.com/vajra (вместо Firebase). Старый адрес — переадресация. -->
+<script>if (/github\.io$/.test(location.hostname)) location.replace('https://life.maxdzhabali.com/vajra/');</script>
+<script src="life-store.js"></script>
 </head>
 <body>
 
@@ -231,7 +230,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.6.4</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.7.0</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -1044,7 +1043,7 @@ document.getElementById('exportJson').addEventListener('click',async()=>{
     snap.forEach(d=>{ const x=d.data(); days[d.id]={slots:x.slots||[], updatedAt:x.updatedAt&&x.updatedAt.toDate?x.updatedAt.toDate().toISOString():null}; });
     const local={};
     for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); const m=k&&k.match(/^vajra_day_(\d{4}-\d{2}-\d{2})$/); if(m){ try{ local[m[1]]=JSON.parse(localStorage.getItem(k)); }catch(e){} } }
-    const out={app:'vajra-tracker', version:'v2.6.4', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
+    const out={app:'vajra-tracker', version:'v2.7.0', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
     const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vajra-export-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
     showToast('Скачано дней: '+Object.keys(days).length);

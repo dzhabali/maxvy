@@ -10,19 +10,17 @@
  *
  * Версию кэша поднимать при изменении состава precache.
  */
-const CACHE = 'vajra-v15';
+const CACHE = 'vajra-v16';
 
 // gstatic-скрипты Firebase кэшируем как opaque (no-cors) — этого достаточно для <script src>.
-const FIREBASE_LIBS = [
-  'https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js',
-  'https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js'
-];
+// С v2.7.0 Firebase нет: данные на life.maxdzhabali.com/vajra/api (life-store.js). Список оставлен пустым.
+const FIREBASE_LIBS = [];
 
 // Same-origin app-shell (относительные пути — работают и на Firebase Hosting, и на GitHub Pages).
 const SHELL = [
   './',
   './vajra-tracker.html',
+  './life-store.js',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
@@ -65,8 +63,9 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Firebase API — не перехватываем
+  // Firebase API и наш API/вход — не перехватываем (данные всегда из сети; без сети рулит localStorage-зеркало)
   if (isFirebaseApi(url)) return;
+  if (url.pathname.includes('/api/') || url.pathname.startsWith('/chronicle/')) return;
 
   const isShell = url.origin === self.location.origin;
   const isFirebaseLib = FIREBASE_LIBS.includes(url.href);
