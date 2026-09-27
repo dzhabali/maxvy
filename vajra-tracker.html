@@ -22,7 +22,7 @@
   body{background:#f8f9fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.35;color:#111;max-width:480px;margin:0 auto;min-height:100vh}
 
   /* TOPBAR */
-  .topbar{position:sticky;top:0;z-index:20;background:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e5e7eb}
+  .topbar{position:sticky;top:0;z-index:20;background:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e5e7eb}
   .app-title{font-weight:700;font-size:15px}
   .app-ver{font-size:11px;color:#9ca3af;font-weight:600;margin-left:6px}
   .date-badge{font-size:12px;color:#6b7280;background:#f3f4f6;padding:4px 10px;border-radius:999px;border:1px solid #e5e7eb}
@@ -96,7 +96,7 @@
   .bot-btn.on-amber{color:var(--amber-text);border-color:var(--amber-border);background:var(--amber-bg)}
 
   /* FOOTER PROGRESS */
-  .footer-bar{position:sticky;bottom:0;margin-top:14px;padding:10px 16px;border-top:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;background:#fff;z-index:10}
+  .footer-bar{position:sticky;bottom:0;margin-top:14px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;background:#fff;z-index:10}
   .ft{flex:1;height:10px;background:#f3f4f6;border-radius:6px;overflow:hidden;border:1px solid #e5e7eb}
   .ft-fill{height:100%;border-radius:6px;background:var(--green);transition:width .4s cubic-bezier(.34,1.56,.64,1)}
   .ft-label{font-size:13px;font-weight:600;color:#111;white-space:nowrap}
@@ -152,7 +152,7 @@
   .ksub{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;font-weight:400}
 
   /* TABS */
-  .tabs{display:flex;border-bottom:1px solid #e5e7eb;background:#fff;position:sticky;top:49px;z-index:19}
+  .tabs{display:flex;border-bottom:1px solid #e5e7eb;background:#fff;position:sticky;top:calc(49px + env(safe-area-inset-top));z-index:19}
   .tab{flex:1;padding:10px;border:none;background:transparent;cursor:pointer;font-size:13px;font-weight:500;color:#6b7280;border-bottom:2px solid transparent;transition:all .15s}
   .tab.active{color:#c0185a;border-bottom-color:#c0185a}
   .tab-content{display:none}
@@ -230,7 +230,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.7.0</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.7.1</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -1043,7 +1043,7 @@ document.getElementById('exportJson').addEventListener('click',async()=>{
     snap.forEach(d=>{ const x=d.data(); days[d.id]={slots:x.slots||[], updatedAt:x.updatedAt&&x.updatedAt.toDate?x.updatedAt.toDate().toISOString():null}; });
     const local={};
     for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); const m=k&&k.match(/^vajra_day_(\d{4}-\d{2}-\d{2})$/); if(m){ try{ local[m[1]]=JSON.parse(localStorage.getItem(k)); }catch(e){} } }
-    const out={app:'vajra-tracker', version:'v2.7.0', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
+    const out={app:'vajra-tracker', version:'v2.7.1', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
     const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vajra-export-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
     showToast('Скачано дней: '+Object.keys(days).length);
