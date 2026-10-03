@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Ваджра"/>
-<link rel="apple-touch-icon" href="icon-180.png?v=2"/>
+<link rel="apple-touch-icon" href="icon-180.png?v=3"/>
 <style>
   :root{
     --crimson:#c0185a;--crimson2:#96124a;--crimson-light:#fce7f3;
@@ -87,6 +87,25 @@
   .cur-time-badge{font-size:13px;color:rgba(255,255,255,.6);margin-bottom:2px}
   .main-cnt{font-size:42px;font-weight:700;color:#fff;line-height:1}
   .main-sub{font-size:14px;color:rgba(255,255,255,.75)}
+
+  /* HOLD-TO-COUNT (v2.8.0): засчитывается только удержание HOLD_MS — один вдох памятования, не рефлекторный тап */
+  .main-btn,#landscapeMode{position:relative;overflow:hidden;-webkit-touch-callout:none;-webkit-user-select:none}
+  .main-btn>*,#landscapeMode>*{position:relative;z-index:1}
+  .hold-fill{position:absolute!important;inset:0;z-index:0!important;background:rgba(253,164,207,.38);transform:scaleX(0);transform-origin:left center;pointer-events:none}
+  .main-btn.holding,#landscapeMode.holding{transform:none}
+  /* оценка памятования */
+  .q-overlay{position:fixed;inset:0;z-index:150;background:rgba(0,0,0,.35);display:none;align-items:flex-end;justify-content:center}
+  .q-overlay.open{display:flex}
+  .q-card{width:100%;max-width:520px;background:#fff;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.15)}
+  .q-title{text-align:center;font-size:15px;font-weight:600;color:#111;margin-bottom:14px}
+  .q-btns{display:flex;gap:8px}
+  .q-btn{flex:1;padding:18px 6px;border-radius:14px;border:1px solid;font-size:16px;font-weight:600;cursor:pointer}
+  .q-btn.qc{background:#ecfdf5;border-color:#6ee7b7;color:#065f46}
+  .q-btn.qm{background:#fffbeb;border-color:#fcd34d;color:#92400e}
+  .q-btn.qa{background:#f3f4f6;border-color:#d1d5db;color:#4b5563}
+  .q-stats{text-align:center;font-size:12px;color:#6b7280;padding:8px 16px 0}
+  .q-stats b{font-weight:600}
+  @media (orientation:landscape) and (max-height:560px){ .q-overlay{align-items:center} .q-card{border-radius:20px;max-width:560px} }
 
   /* BOT BUTTONS */
   .bot-btns{display:flex;gap:8px;padding:0 16px}
@@ -188,7 +207,7 @@
   .leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 
   /* TOAST */
-  .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-20px);background:#111;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;z-index:200;opacity:0;transition:.25s;pointer-events:none}
+  .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%) translateY(-20px);background:#111;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;z-index:200;opacity:0;transition:.25s;pointer-events:none}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
   /* EXPORT */
@@ -230,7 +249,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.7.1</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.8.1</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -286,6 +305,7 @@
 <!-- MAIN BUTTON with integrated timer -->
 <div class="main-btn-wrap" id="mainBtnWrap">
   <button class="main-btn" id="mainBtn" style="flex-direction:row;align-items:center;justify-content:space-between;padding:16px 20px;gap:12px">
+    <div class="hold-fill"></div>
     <!-- таймер слева -->
     <div style="position:relative;width:120px;height:120px;flex-shrink:0">
       <svg style="width:120px;height:120px;transform:rotate(-90deg)" viewBox="0 0 120 120">
@@ -311,7 +331,7 @@
     <!-- счётчик справа -->
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:1">
       <span id="mainCnt" style="font-size:72px;font-weight:200;color:#fff;line-height:1;letter-spacing:-2px">0</span>
-      <span style="font-size:12px;color:rgba(255,255,255,.6)">нажми — вспомнил</span>
+      <span class="hold-hint" style="font-size:12px;color:rgba(255,255,255,.6)">держи 3 сек — вспомни</span>
     </div>
   </button>
 </div>
@@ -321,6 +341,7 @@
   <button class="bot-btn" id="sleepBtn">Сон</button>
   <button class="bot-btn" id="forgotBtn">Забыл</button>
 </div>
+<div class="q-stats" id="qStats"></div>
 
 <!-- NEXT SLOT -->
 <div class="slots-wrap" id="nextSlotWrap" style="padding-top:8px"><div class="nb" id="nextSlot" style="display:none"></div></div>
@@ -410,8 +431,21 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ОЦЕНКА ПАМЯТОВАНИЯ (после удержания) -->
+<div class="q-overlay" id="qOverlay">
+  <div class="q-card">
+    <div class="q-title">Как вспомнил?</div>
+    <div class="q-btns">
+      <button class="q-btn qc" data-q="qc">Ясно</button>
+      <button class="q-btn qm" data-q="qm">Средне</button>
+      <button class="q-btn qa" data-q="qa">Автомат</button>
+    </div>
+  </div>
+</div>
+
 <!-- LANDSCAPE QUICK-TAP (телефон горизонтально): таймер + счётчик, весь экран = +1 -->
 <button id="landscapeMode" aria-label="Вспомнил +1">
+  <div class="hold-fill"></div>
   <!-- таймер слева -->
   <div class="ls-timer-wrap">
     <svg class="ls-timer-svg" viewBox="0 0 120 120">
@@ -437,7 +471,7 @@
   <!-- счётчик справа (счётчик текущего слота, как в портрете) -->
   <div class="ls-count-wrap">
     <span class="ls-num" id="lsNum">0</span>
-    <span class="ls-hint">нажми — вспомнил</span>
+    <span class="ls-hint hold-hint">держи 3 сек — вспомни</span>
   </div>
   <div class="ls-bar" id="lsBar"></div>
 </button>
@@ -474,7 +508,9 @@ const normalizeSlots = arr => {
   return Array.from({length:96},(_,i)=>{
     const s = src[i] || {};
     // t = метка последней правки слота (клиентское Date.now()). 0 = не трогали / старые данные.
-    return { time:slotTime(i), count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot), t:Number(s.t)||0 };
+    // qc/qm/qa — оценка памятований слота: ясно / средне / автомат (v2.8.0)
+    return { time:slotTime(i), count:Number(s.count||0), sleep:Boolean(s.sleep), forgot:Boolean(s.forgot), t:Number(s.t)||0,
+             qc:Number(s.qc||0), qm:Number(s.qm||0), qa:Number(s.qa||0) };
   });
 };
 
@@ -489,7 +525,8 @@ function mergeSlots(a, b){
   return Array.from({length:96},(_,i)=>{
     const x = A[i], y = B[i];
     if(x.t !== y.t) return x.t > y.t ? x : y;
-    return { time:x.time, count:Math.max(x.count,y.count), sleep:x.sleep||y.sleep, forgot:x.forgot||y.forgot, t:x.t };
+    return { time:x.time, count:Math.max(x.count,y.count), sleep:x.sleep||y.sleep, forgot:x.forgot||y.forgot, t:x.t,
+             qc:Math.max(x.qc,y.qc), qm:Math.max(x.qm,y.qm), qa:Math.max(x.qa,y.qa) };
   });
 }
 
@@ -689,6 +726,13 @@ function render(autoScroll=false){
   document.getElementById('lsBar').style.width=pct+'%';
   document.getElementById('lsTimeBadge').textContent=slotTime(ci);
 
+  // оценки памятований за день
+  const q={qc:0,qm:0,qa:0}; slots.forEach(s=>{ q.qc+=s.qc||0; q.qm+=s.qm||0; q.qa+=s.qa||0; });
+  const qn=q.qc+q.qm+q.qa;
+  document.getElementById('qStats').innerHTML = qn
+    ? `ясно <b>${q.qc}</b> · средне <b>${q.qm}</b> · автомат <b>${q.qa}</b> — ясных ${Math.round(q.qc/qn*100)}%`
+    : '';
+
   // sleep / forgot buttons
   const sb=document.getElementById('sleepBtn');
   sb.textContent=slots[ci].sleep?'Сон ✓':'Сон';
@@ -772,12 +816,70 @@ function bumpCurrent(d){
   slots[ci].count=Math.max(0,(slots[ci].count||0)+d); slots[ci].t=Date.now();
   dayCache=slots; render(); saveSlots();
 }
-document.getElementById('mainBtn').addEventListener('click',()=>{
+// ── УДЕРЖАНИЕ + ОЦЕНКА (v2.8.0) ───────────────────────────────────────
+// Тап на автомате превращался в моторный рефлекс. Теперь +1 — только за удержание HOLD_MS
+// (кнопка заливается), после — оценка «ясно / средне / автомат» в слот (qc/qm/qa).
+const HOLD_MS = 3000;          // поднять до 5000, когда 3 сек станут привычкой
+const Q_AUTOCLOSE_MS = 12000;  // не ответил — памятование засчитано без оценки
+let hold = null, qPending = null, qTimer = null;
+
+function setHoldHints(txt){ document.querySelectorAll('.hold-hint').forEach(el=>el.textContent=txt); }
+const IDLE_HINT = `держи ${HOLD_MS/1000} сек — вспомни`;
+setHoldHints(IDLE_HINT);
+
+function holdReset(el){
+  const f=el.querySelector('.hold-fill');
+  f.style.transition='none'; f.style.transform='scaleX(0)';
+  el.classList.remove('holding');
+  setHoldHints(IDLE_HINT);
+}
+function holdStart(e){
+  if(hold || (e.pointerType==='mouse' && e.button!==0)) return;
+  const el=e.currentTarget, f=el.querySelector('.hold-fill');
+  f.style.transition='none'; f.style.transform='scaleX(0)'; void f.offsetWidth;
+  f.style.transition=`transform ${HOLD_MS}ms linear`; f.style.transform='scaleX(1)';
+  el.classList.add('holding');
+  const t0=Date.now();
+  const tick=()=>{ const left=Math.ceil((HOLD_MS-(Date.now()-t0))/1000); setHoldHints(left>0?`вспоминай… ${left}`:'вспоминай…'); };
+  tick();
+  hold={el, t0, iv:setInterval(tick,200), to:setTimeout(holdDone,HOLD_MS)};
+}
+function holdStop(e){
+  if(!hold) return;
+  const h=hold; hold=null;
+  clearTimeout(h.to); clearInterval(h.iv); holdReset(h.el);
+  // отпустил рано (не скролл/отмена системой) — подсказка
+  if(e.type==='pointerup' && Date.now()-h.t0 > 150) showToast(`Держи ${HOLD_MS/1000} секунды`);
+}
+function holdDone(){
+  const h=hold; hold=null;
+  clearInterval(h.iv); holdReset(h.el);
+  try{ navigator.vibrate && navigator.vibrate(25); }catch(e){}
   bumpCurrent(1);
-  startTimer(); // перезапускаем таймер при каждом нажатии
+  startTimer(); // перезапускаем таймер при каждом памятовании
+  qPending={date:dp.value, i:curIdx()};
+  document.getElementById('qOverlay').classList.add('open');
+  clearTimeout(qTimer); qTimer=setTimeout(qClose, Q_AUTOCLOSE_MS);
+}
+function qClose(){ clearTimeout(qTimer); qPending=null; document.getElementById('qOverlay').classList.remove('open'); }
+function qPick(key){
+  const p=qPending; qClose();
+  if(!p || p.date!==dp.value) return;
+  // без pushUndo: откат снимает и +1, и оценку одним шагом (снимок сделан до bumpCurrent)
+  const slots=dayCache||emptyDay();
+  slots[p.i][key]=(slots[p.i][key]||0)+1; slots[p.i].t=Date.now();
+  dayCache=slots; render(); saveSlots();
+}
+['mainBtn','landscapeMode'].forEach(id=>{
+  const el=document.getElementById(id);
+  el.addEventListener('pointerdown',holdStart);
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,holdStop));
+  el.addEventListener('contextmenu',e=>e.preventDefault());
 });
-// landscape: весь экран = +1
-document.getElementById('landscapeMode').addEventListener('click',()=>{ bumpCurrent(1); startTimer(); });
+document.getElementById('qOverlay').addEventListener('click',e=>{
+  const b=e.target.closest('[data-q]');
+  if(b) qPick(b.dataset.q); else if(e.target.id==='qOverlay') qClose();
+});
 document.getElementById('sleepBtn').addEventListener('click',()=>{
   ensureToday();
   pushUndo();
@@ -1043,7 +1145,7 @@ document.getElementById('exportJson').addEventListener('click',async()=>{
     snap.forEach(d=>{ const x=d.data(); days[d.id]={slots:x.slots||[], updatedAt:x.updatedAt&&x.updatedAt.toDate?x.updatedAt.toDate().toISOString():null}; });
     const local={};
     for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); const m=k&&k.match(/^vajra_day_(\d{4}-\d{2}-\d{2})$/); if(m){ try{ local[m[1]]=JSON.parse(localStorage.getItem(k)); }catch(e){} } }
-    const out={app:'vajra-tracker', version:'v2.7.1', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
+    const out={app:'vajra-tracker', version:'v2.8.1', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
     const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vajra-export-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
     showToast('Скачано дней: '+Object.keys(days).length);
@@ -1297,7 +1399,8 @@ function popUndo(){
       const cur = normalizeSlots(dayCache||emptyDay());
       const now = Date.now();
       for(let k=0;k<96;k++){
-        if(restored[k].count!==cur[k].count || restored[k].sleep!==cur[k].sleep || restored[k].forgot!==cur[k].forgot) restored[k].t=now;
+        if(restored[k].count!==cur[k].count || restored[k].sleep!==cur[k].sleep || restored[k].forgot!==cur[k].forgot
+           || restored[k].qc!==cur[k].qc || restored[k].qm!==cur[k].qm || restored[k].qa!==cur[k].qa) restored[k].t=now;
       }
       dayCache = restored;
       try{ localStorage.setItem('vajra_undo', JSON.stringify(undoStack)); }catch(e){}

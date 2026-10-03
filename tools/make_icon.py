@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Значок Ваджра-трекера: золотая ваджра со свечением на изумрудном фоне. → icon-512.png, icon-192.png, icon-180.png"""
+"""Значок Ваджра-трекера: золотая ваджра со свечением на красном фоне, середина — белая или чёрная (--center). → icon-512.png, icon-192.png, icon-180.png"""
 import math
 import os
+import sys
 from PIL import Image, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GOLD, GOLD_HI, GOLD_LO = (236, 196, 110), (255, 232, 170), (176, 128, 52)
-CRIMSON = (192, 24, 90)
+CENTERS = {                                          # середина: (сфера, блик)
+    'white': ((250, 246, 238), (255, 255, 255)),
+    'black': ((22, 16, 16), (120, 110, 110)),
+}
 K = 0.88                                             # масштаб рисунка: острия в безопасной зоне maskable
 
 
@@ -17,7 +21,7 @@ def bg(s):
     for y in range(s):
         for x in range(s):
             t = min(1, math.hypot(x - c, y - c * 0.9) / (s * 0.75))   # радиальный: центр светлее
-            px[x, y] = (int(22 - 14 * t), int(96 - 60 * t), int(76 - 48 * t))
+            px[x, y] = (int(214 - 104 * t), int(36 - 26 * t), int(34 - 22 * t))
     return img.convert('RGBA')
 
 
@@ -45,7 +49,7 @@ def half(d, s, sign):
     d.polygon([(c - 2.6 * u, y(33)), (c + 2.6 * u, y(33)), (c, y(41))], fill=GOLD_HI)
 
 
-def draw(size):
+def draw(size, center='black'):
     s = size * 4
     img = bg(s)
     art = Image.new('RGBA', (s, s), (0, 0, 0, 0))
@@ -54,14 +58,15 @@ def draw(size):
     c = s / 2
     half(d, s, -1)
     half(d, s, +1)
-    # центральная сфера — малиновая, как в самом трекере, с золотым ободком
+    # центральная сфера с золотым ободком
+    sphere, shine = CENTERS[center]
     r = 6.5 * u
     d.ellipse([c - r - 1.4 * u, c - r - 1.4 * u, c + r + 1.4 * u, c + r + 1.4 * u], fill=GOLD)
-    d.ellipse([c - r, c - r, c + r, c + r], fill=CRIMSON)
-    d.ellipse([c - r * .45 - r * .3, c - r * .45 - r * .3, c - r * .45 + r * .3, c - r * .45 + r * .3], fill=(250, 170, 200))
+    d.ellipse([c - r, c - r, c + r, c + r], fill=sphere)
+    d.ellipse([c - r * .45 - r * .3, c - r * .45 - r * .3, c - r * .45 + r * .3, c - r * .45 + r * .3], fill=shine)
     glow = art.filter(ImageFilter.GaussianBlur(s / 28))
     halo = Image.new('RGBA', (s, s), (0, 0, 0, 0))
-    ImageDraw.Draw(halo).ellipse([c - 30 * u, c - 30 * u, c + 30 * u, c + 30 * u], fill=(255, 214, 130, 40))
+    ImageDraw.Draw(halo).ellipse([c - 30 * u, c - 30 * u, c + 30 * u, c + 30 * u], fill=(255, 214, 130, 55))
     halo = halo.filter(ImageFilter.GaussianBlur(s / 12))
     img = Image.alpha_composite(img, halo)
     img = Image.alpha_composite(img, glow)
@@ -70,8 +75,10 @@ def draw(size):
 
 
 if __name__ == '__main__':
-    big = draw(512)
-    big.save(os.path.join(HERE, 'icon-512.png'))
+    center = sys.argv[sys.argv.index('--center') + 1] if '--center' in sys.argv else 'black'
+    out = sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else HERE
+    big = draw(512, center)
+    big.save(os.path.join(out, 'icon-512.png'))
     for n in (192, 180):
-        big.resize((n, n), Image.LANCZOS).save(os.path.join(HERE, 'icon-%d.png' % n))
+        big.resize((n, n), Image.LANCZOS).save(os.path.join(out, 'icon-%d.png' % n))
     print('ok')
