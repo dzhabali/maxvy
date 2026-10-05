@@ -10,7 +10,7 @@
  *
  * Версию кэша поднимать при изменении состава precache.
  */
-const CACHE = 'vajra-v21';
+const CACHE = 'vajra-v22';
 
 // gstatic-скрипты Firebase кэшируем как opaque (no-cors) — этого достаточно для <script src>.
 // С v2.7.0 Firebase нет: данные на life.maxdzhabali.com/vajra/api (life-store.js). Список оставлен пустым.
