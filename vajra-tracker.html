@@ -54,11 +54,15 @@
   .hist-section.all-open .hist-rows{max-height:none;overflow-y:visible}
   .hist-hint{text-align:center;font-size:12px;color:#9ca3af;padding:10px 0 6px}
   
-  .hist-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #f3f4f6;background:#fff}
+  .hist-row{display:flex;align-items:center;gap:6px;padding:9px 10px;border-bottom:1px solid #f3f4f6;background:#fff}
   .hist-row:last-child{border-bottom:none}
   .hist-time{font-size:13px;color:#6b7280;width:44px;flex-shrink:0}
   .hist-cnt{font-size:14px;font-weight:600;color:#111;min-width:18px}
-  .hist-acts{display:flex;gap:4px;margin-left:auto;align-items:center;flex-wrap:wrap}
+  .hist-acts{display:flex;gap:3px;margin-left:auto;align-items:center;flex-wrap:nowrap}
+  /* узкий экран: «Сон ✓»/«Забыл ✓» шире — не переносить ряд, а ужать кнопки */
+  .hist-acts>button{flex-shrink:0;white-space:nowrap}
+  .hist-acts .gem-btn{padding:5px 7px}
+  .hist-acts .btn-base{padding:5px 6px}
 
   /* SLOT CARDS */
   .slots-wrap{padding:10px 16px 6px;display:flex;flex-direction:column;gap:6px}
@@ -250,7 +254,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.8.2</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.8.3</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -1150,7 +1154,7 @@ document.getElementById('exportJson').addEventListener('click',async()=>{
     snap.forEach(d=>{ const x=d.data(); days[d.id]={slots:x.slots||[], updatedAt:x.updatedAt&&x.updatedAt.toDate?x.updatedAt.toDate().toISOString():null}; });
     const local={};
     for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); const m=k&&k.match(/^vajra_day_(\d{4}-\d{2}-\d{2})$/); if(m){ try{ local[m[1]]=JSON.parse(localStorage.getItem(k)); }catch(e){} } }
-    const out={app:'vajra-tracker', version:'v2.8.2', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
+    const out={app:'vajra-tracker', version:'v2.8.3', exported_at:new Date().toISOString(), uid, days, local_mirrors:local};
     const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vajra-export-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
     showToast('Скачано дней: '+Object.keys(days).length);
