@@ -1,0 +1,49 @@
+# Ваджра — iOS
+
+Нативный порт `../vajra-tracker.html` (v2.8.1): SwiftUI, iOS 18+, без SwiftData.
+Данные — тот же сервер `life.maxdzhabali.com/vajra/api` (`life-chronicle/personal_apps.py`), вход паролем Life
+(POST `/chronicle/login`, `pw`, `next=/vajra/` → кука `life`).
+
+Плюсы натива: интент «Памятование +1» (Siri, кнопка Action, Шорткаты), кнопка «+1» в Пункте управления
+и на экране блокировки (ControlWidget), виджеты со счётом дня (круглый/прямоугольный на экране блокировки,
+маленький с кнопкой +1).
+
+## Собрать (на Mac mini — там Xcode)
+
+```bash
+cd ios
+xcodegen generate                      # → Vajra.xcodeproj (в git не хранится)
+xcodebuild -project Vajra.xcodeproj -scheme Vajra -sdk iphoneos -destination generic/platform=iOS \
+  -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO build
+xcodebuild test -project Vajra.xcodeproj -scheme Vajra \
+  -destination "platform=iOS Simulator,name=<iPhone>" -derivedDataPath build/dd
+```
+
+Демо без сети: аргумент запуска `-demo` (локальные данные во временной папке), вкладка — `-tab calendar|sleep`.
+
+Иконка-заглушка: `tools/make_icon.sh` (из `../icon-512.png`, 1024 без альфы).
+
+## Таргеты и подпись
+
+| Таргет | Bundle ID |
+|---|---|
+| Vajra (приложение, «Ваджра») | `com.maxdzhabali.vajra` |
+| VajraWidgets (WidgetKit + ControlWidget) | `com.maxdzhabali.vajra.widgets` |
+
+Оба — в App Group `group.com.maxdzhabali.vajra`. Team `F8H3UK3UF7`, подпись в проекте Automatic.
+Для TestFlight нужны ДВА профиля App Store (приложение + расширение) — имена в `tools/ExportOptions.plist`
+(«Vajra App Store», «Vajra Widgets App Store»); `PROVISIONING_PROFILE_SPECIFIER` задавать по таргету, не глобально.
+Схема как у ShamaTimer: см. `../../shamatimer/ios/README.md` и `tools/asc.py` там.
+
+## Что где
+
+- `Shared/` — компилируется в оба таргета: модель слотов (`norm_slots`/`merge_slots` 1-в-1 с сервером),
+  статистика, хранилище дней (`DayStore`: JSON на день в App Group, межпроцессный flock, флаг `dirty`),
+  API + синк, интент `IncrementRecollectionIntent`.
+- `Vajra/` — приложение: вход, `AppModel` (логика экрана, debounce синка 1,5 с, опрос 20 с), экраны.
+- `VajraWidgets/` — виджеты и ControlWidget.
+- `VajraTests/` — слияние слотов (ожидания из Python), даты/полночь, статистика, интент на временном каталоге.
+
+Синк: правка → `t = now мс`, день грязный → PUT; ответ сервера сливается с локальным (`merge_slots`),
+день чистый, если локально нет ничего новее. Кука лежит в общем cookie-хранилище App Group, поэтому
+расширение тоже может дослать «+1» сразу (таймаут 5 с), иначе дошлёт приложение.

@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "ru",
+  "strings" : {
+    "${applicationName} плюс один" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "${applicationName} plus one" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "${applicationName} плюс один" } }
+      }
+    },
+    "Отметь памятование в ${applicationName}" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Log a recollection in ${applicationName}" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Отметь памятование в ${applicationName}" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

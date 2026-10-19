@@ -1,0 +1,6 @@
+# iOS: проект генерируется xcodegen из ios/project.yml
+ios/Vajra.xcodeproj/
+ios/build/
+ios/DerivedData/
+xcuserdata/
+.DS_Store
