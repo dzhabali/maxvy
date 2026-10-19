@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Состояние экрана — порт логики vajra-tracker.html: выбранный день, правки слотов, удержание,
 /// оценка, ачивки, отмена, таймер 3:00, перекат дня, синк (debounce 1,5 с, опрос раз в 20 с).
@@ -44,7 +45,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var months: [String: [String: [Slot]]] = [:]
     /// Тик раз в 30 с — двигает «текущий слот».
     @Published private(set) var clock = Date()
-    /// Идёт подтягивание незагруженного дня перед правкой.
+    /// Идёт подтягивание свежего дня перед «Сбросить день».
     @Published private(set) var loadingDay = false
 
     let store: DayStore
@@ -120,7 +121,12 @@ final class AppModel: ObservableObject {
         guard !demo else { return }
         syncTask?.cancel()
         let store = store, api = api
-        Task { _ = try? await VajraSync.pushDirty(store: store, api: api) }  // дописать немедленно
+        // дописать немедленно; фоновое время, чтобы система не усыпила посреди запроса
+        let bg = BackgroundTask(name: "vajra-sync")
+        Task {
+            _ = try? await VajraSync.pushDirty(store: store, api: api)
+            bg.end()
+        }
     }
 
     /// Синк: дослать неотправленное + свежий снимок выбранного дня.
@@ -201,27 +207,7 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    // MARK: правки
-
-    /// Правки-установки разрешены только на дне, слитом с сервером: иначе пустая база затёрла бы
-    /// серверные слоты. Незагруженный день сначала подтягиваем.
-    private func ensureSynced(_ d: String) async -> Bool {
-        if demo || store.isSynced(d) { return true }
-        loadingDay = true
-        defer { loadingDay = false }
-        do {
-            try await VajraSync.pullDay(store: store, api: shortAPI, date: d)
-            auth?.markOnline()
-        } catch SyncError.unauthorized {
-            auth?.handleUnauthorized()
-        } catch {
-            auth?.markOffline()
-        }
-        reload()
-        if store.isSynced(d) { return true }
-        showToast("Нет данных дня, нужна сеть")
-        return false
-    }
+    // MARK: правки — все через очередь операций (add / set по полям)
 
     private func afterEdit(_ date: String, _ res: [Slot], changes: [SlotChange]) {
         if !changes.isEmpty {
@@ -245,12 +231,12 @@ final class AppModel: ObservableObject {
 
     private var nowMs: Int64 { VajraDate.ms(Date()) }
 
-    /// Удержание 3 с засчитано: +1 (дельта) в текущий слот сегодня → таймер с нуля → «Как вспомнил?».
+    /// Удержание 3 с засчитано: +1 в текущий слот сегодня → таймер с нуля → «Как вспомнил?».
     func holdCompleted() {
         ensureToday()
         let now = Date()
         let d = VajraDate.string(now), i = VajraDate.slotIndex(now)
-        let r = store.addDelta(d, i: i, count: 1, nowMs: VajraDate.ms(now))
+        let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))
         afterEdit(d, r.slots, changes: [r.change])
         startTimer()
         qPending = QPending(date: d, index: i)
@@ -264,72 +250,85 @@ final class AppModel: ObservableObject {
 
     func qClose() { qTask?.cancel(); qPending = nil }
 
-    /// Оценка — дельта; в отмене склеивается с +1 (откат снимает и +1, и оценку).
+    /// Оценка — add; в отмене склеивается с +1 (откат снимает и +1, и оценку).
     func qPick(_ key: QKey) {
         guard let p = qPending else { return }
         qClose()
         guard p.date == selectedDate else { return }
-        let r = store.addDelta(p.date, i: p.index, q: key, nowMs: nowMs)
+        let r = store.add(p.date, i: p.index, q: key, nowMs: nowMs)
         var changes = [r.change]
         if let last = undo.last, last.date == p.date, last.changes.count == 1,
-           case let .delta(i, c, qc, qm, qa, _) = last.changes[0], i == p.index,
-           case let .delta(_, _, nqc, nqm, nqa, t) = r.change {
+           case let .add(i, c, qc, qm, qa) = last.changes[0], i == p.index,
+           case let .add(_, _, nqc, nqm, nqa) = r.change {
             undo.removeLast()
-            changes = [.delta(i: i, count: c, qc: qc + nqc, qm: qm + nqm, qa: qa + nqa, afterT: t)]
+            changes = [.add(i: i, count: c, qc: qc + nqc, qm: qm + nqm, qa: qa + nqa)]
         }
         afterEdit(p.date, r.slots, changes: changes)
     }
 
-    private func setEdit(_ f: @escaping (inout [Slot]) -> Void, done: (() -> Void)? = nil) {
+    private func setFields(_ edits: [(i: Int, fields: SetFields)]) {
         let d = selectedDate
-        Task {
-            guard await ensureSynced(d) else { return }
-            let r = store.setSlots(d, nowMs: nowMs, f)
-            afterEdit(d, r.slots, changes: r.changes)
-            done?()
-        }
+        let r = store.set(d, nowMs: nowMs, edits)
+        afterEdit(d, r.slots, changes: r.changes)
     }
 
     func toggleSleepCurrent() {
         ensureToday()
         let i = currentIndex
-        setEdit { $0[i].sleep.toggle() }
+        setFields([(i, SetFields(sleep: !slots[i].sleep))])
     }
 
     func toggleForgotCurrent() {
         ensureToday()
         let i = currentIndex
-        setEdit { $0[i].forgot.toggle() }
+        setFields([(i, SetFields(forgot: !slots[i].forgot))])
     }
 
     enum SlotAct { case plus, minus, sleep, forgot }
 
-    /// ± — дельты (работают и без загруженного дня), Сон/Забыл — установки.
     func act(_ a: SlotAct, _ i: Int) {
         guard (0..<Slots.count).contains(i) else { return }
-        let d = selectedDate
         switch a {
         case .plus, .minus:
             if a == .minus && slots[i].count <= 0 { return }
-            let r = store.addDelta(d, i: i, count: a == .plus ? 1 : -1, nowMs: nowMs)
+            let d = selectedDate
+            let r = store.add(d, i: i, count: a == .plus ? 1 : -1, nowMs: nowMs)
             afterEdit(d, r.slots, changes: [r.change])
-        case .sleep: setEdit { $0[i].sleep.toggle() }
-        case .forgot: setEdit { $0[i].forgot.toggle() }
+        case .sleep: setFields([(i, SetFields(sleep: !slots[i].sleep))])
+        case .forgot: setFields([(i, SetFields(forgot: !slots[i].forgot))])
         }
     }
 
-    /// «Сон до текущего времени»: слоты 0…ci-1.
+    /// «Сон до текущего времени»: sleep=true в слотах 0…ci-1 (счёт не трогаем).
     func sleepTillNow() {
         ensureToday()
         let ci = currentIndex
-        setEdit({ s in for i in 0..<ci { s[i].sleep = true } }, done: { [weak self] in self?.sleepTillDone = true })
+        setFields((0..<ci).map { ($0, SetFields(sleep: true)) })
+        sleepTillDone = true
     }
 
-    /// Полный обнул дня: все слоты с t = max(now, maxT + 1), иначе слияние воскресит данные с сервера.
+    /// «Сбросить день» намеренно обнуляет всё — только по свежему (≤ 60 с) снимку сервера.
     func resetDay() {
         let d = selectedDate
         Task {
-            guard await ensureSynced(d) else { return }
+            if !demo, Date().timeIntervalSince1970 - (store.record(d)?.fetchedAt ?? 0) > 60 {
+                loadingDay = true
+                do {
+                    try await VajraSync.pushDay(store: store, api: shortAPI, date: d)
+                    try await VajraSync.pullDay(store: store, api: shortAPI, date: d)
+                    auth?.markOnline()
+                } catch SyncError.unauthorized {
+                    auth?.handleUnauthorized()
+                } catch {
+                    auth?.markOffline()
+                }
+                loadingDay = false
+                reload()
+                guard Date().timeIntervalSince1970 - (store.record(d)?.fetchedAt ?? 0) <= 60 else {
+                    showToast("Нет данных дня, нужна сеть")
+                    return
+                }
+            }
             let r = store.resetDay(d, nowMs: nowMs)
             afterEdit(d, r.slots, changes: r.changes)
             sleepTillDone = false
@@ -341,7 +340,7 @@ final class AppModel: ObservableObject {
 
     struct UndoEntry { let date: String; let changes: [SlotChange] }
 
-    /// Откат только тех слотов, которые с нашей правки никто не трогал (t совпадает).
+    /// add откатывается обратной add; set — только если слот с нашей правки никто не трогал (t совпадает).
     func popUndo() {
         guard let k = undo.lastIndex(where: { $0.date == selectedDate }) else { showToast("Нечего отменять"); return }
         let e = undo.remove(at: k)
@@ -451,5 +450,23 @@ final class AppModel: ObservableObject {
     func openDay(_ d: String) {
         tab = .tracker
         setDate(d)
+    }
+}
+
+/// beginBackgroundTask/endBackgroundTask, закрываемый один раз.
+@MainActor
+final class BackgroundTask {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }

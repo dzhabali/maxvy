@@ -196,6 +196,25 @@ enum VajraDate {
         return string(r, calendar: calendar)
     }
 
+    /// Сравнение updatedAt сервера: «…:05Z» и «…:05.000123Z» — как даты; нераспознанное — как строки.
+    static func isoLess(_ a: String, _ b: String) -> Bool {
+        if let x = parseISO(a), let y = parseISO(b) { return x < y }
+        return a < b
+    }
+
+    /// «YYYY-MM-DDTHH:MM:SS[.ffffff]Z» с точностью до микросекунд (ISO8601DateFormatter режет до мс).
+    static func parseISO(_ s: String) -> Date? {
+        guard s.hasSuffix("Z") else { return nil }
+        let body = s.dropLast()
+        let parts = body.split(separator: ".", maxSplits: 1)
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        guard let base = f.date(from: String(parts[0]) + "Z") else { return nil }
+        guard parts.count == 2 else { return base }
+        guard let frac = Double("0." + parts[1]) else { return nil }
+        return base.addingTimeInterval(frac)
+    }
+
     static func ms(_ d: Date) -> Int64 { Int64((d.timeIntervalSince1970 * 1000).rounded(.down)) }
 
     /// [start, end) месяца: month — 1…12; end — первое число следующего месяца.

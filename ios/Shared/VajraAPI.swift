@@ -69,25 +69,32 @@ struct VajraAPI {
 
     let session: URLSession
 
-    func getDay(_ date: String) async throws -> (slots: [Slot], updatedAt: String?, exists: Bool) {
-        let obj = try await call("GET", "days/" + date)
-        return (Slots.norm(obj["slots"]), obj["updatedAt"] as? String, Slots.pyTruthy(obj["exists"]))
+    static func serverDay(_ obj: [String: Any]) -> ServerDay {
+        ServerDay(slots: Slots.norm(obj["slots"]), updatedAt: obj["updatedAt"] as? String,
+                  appliedTail: (obj["applied_tail"] as? [Any] ?? []).compactMap { $0 as? String })
     }
 
-    /// PUT {slots} → сервер сливает по слотам и возвращает итог {slots, updatedAt}.
-    func putDay(_ date: String, _ slots: [Slot]) async throws -> (slots: [Slot], updatedAt: String?) {
-        let obj = try await call("PUT", "days/" + date, body: ["slots": Slots.toJSON(slots)])
-        return (Slots.norm(obj["slots"]), obj["updatedAt"] as? String)
+    private static let opsQuery = [URLQueryItem(name: "ops", value: "1")]
+
+    func getDay(_ date: String) async throws -> ServerDay {
+        Self.serverDay(try await call("GET", "days/" + date, query: Self.opsQuery))
     }
 
-    /// GET days?from&to (to — не включительно) → {дата: slots}.
-    func getRange(from: String, to: String) async throws -> [String: (slots: [Slot], updatedAt: String?)] {
-        let obj = try await call("GET", "days", query: [URLQueryItem(name: "from", value: from), URLQueryItem(name: "to", value: to)])
-        var out: [String: (slots: [Slot], updatedAt: String?)] = [:]
-        for (k, v) in obj {
-            guard let rec = v as? [String: Any] else { continue }
-            out[k] = (Slots.norm(rec["slots"]), rec["updatedAt"] as? String)
-        }
+    /// POST ops — идемпотентно по id; ответ — итоговый день.
+    func postOps(_ date: String, _ ops: [Op]) async throws -> ServerDay {
+        Self.serverDay(try await call("POST", "days/" + date + "/ops", query: Self.opsQuery, body: ["ops": ops.map(\.json)]))
+    }
+
+    /// Старый PUT {slots} → слияние по слотам на сервере (только для миграции билда 2).
+    func putDay(_ date: String, _ slots: [Slot]) async throws -> ServerDay {
+        Self.serverDay(try await call("PUT", "days/" + date, body: ["slots": Slots.toJSON(slots)]))
+    }
+
+    /// GET days?from&to (to — не включительно).
+    func getRange(from: String, to: String) async throws -> [String: ServerDay] {
+        let obj = try await call("GET", "days", query: [URLQueryItem(name: "from", value: from), URLQueryItem(name: "to", value: to)] + Self.opsQuery)
+        var out: [String: ServerDay] = [:]
+        for (k, v) in obj { if let rec = v as? [String: Any] { out[k] = Self.serverDay(rec) } }
         return out
     }
 
@@ -113,11 +120,38 @@ struct VajraAPI {
     }
 }
 
+/// Сервер для синка (в тестах — модель сервера в памяти).
+protocol VajraBackend {
+    func getDay(_ date: String) async throws -> ServerDay
+    func postOps(_ date: String, _ ops: [Op]) async throws -> ServerDay
+    func putDay(_ date: String, _ slots: [Slot]) async throws -> ServerDay
+}
+
+extension VajraAPI: VajraBackend {}
+
+/// Один синк дня на процесс; между процессами безопасно — операции идемпотентны на сервере.
+actor DaySyncGate {
+    static let shared = DaySyncGate()
+    private var running: [String: Task<Void, Error>] = [:]
+
+    /// Работы одного дня выстраиваются цепочкой: каждая ждёт предыдущую (без опроса в цикле).
+    func run(_ date: String, _ work: @escaping () async throws -> Void) async throws {
+        let prev = running[date]
+        let t = Task {
+            _ = try? await prev?.value
+            try await work()
+        }
+        running[date] = t
+        defer { if running[date] == t { running[date] = nil } }
+        try await t.value
+    }
+}
+
 /// Синк, общий для приложения и интентов.
 enum VajraSync {
-    /// Отправка всех дней с неотправленным. Возвращает число отправленных.
+    /// Отправка очередей всех дней. Возвращает число отправленных дней.
     @discardableResult
-    static func pushDirty(store: DayStore, api: VajraAPI) async throws -> Int {
+    static func pushDirty(store: DayStore, api: VajraBackend) async throws -> Int {
         var n = 0
         for d in store.dirtyDates() {
             try await pushDay(store: store, api: api, date: d)
@@ -126,35 +160,35 @@ enum VajraSync {
         return n
     }
 
-    /// Дельты — на СВЕЖИЙ серверный день (GET перед PUT); без дельт — снимок как есть.
-    static func pushDay(store: DayStore, api: VajraAPI, date: String) async throws {
-        guard let rec = store.record(date), rec.needsPush else { return }
-        let body: [Slot]
-        if rec.deltas.isEmpty {
-            body = rec.slots
-        } else {
-            body = DayStore.pushBody(rec, server: try await api.getDay(date).slots)
+    /// Под flock — ожидающие операции (без удаления) → POST /ops → ответ = снимок, отправленные id — из очереди.
+    /// Повтор после потерянного ответа безопасен: сервер уже знает эти id.
+    static func pushDay(store: DayStore, api: VajraBackend, date: String, gate: DaySyncGate = .shared) async throws {
+        try await gate.run(date) {
+            if let rec = store.record(date), rec.legacyDirty {
+                store.clearLegacy(date, response: try await api.putDay(date, rec.slots))
+            }
+            // кусками ≤ 200 (лимит сервера); после каждого ответа — удалить ровно отправленные id
+            while let ops = store.record(date)?.ops, !ops.isEmpty {
+                let chunk = Array(ops.prefix(VajraOps.batch))
+                let r = try await api.postOps(date, chunk)
+                store.applyServer(date, r, sent: Set(chunk.map(\.id)))
+            }
         }
-        let r = try await api.putDay(date, body)
-        store.commitPush(date, response: r.slots, updatedAt: r.updatedAt, sentDeltaIds: Set(rec.deltas.map(\.id)))
     }
 
-    /// GET дня → слияние с локальным; день становится «загруженным» (synced), даже если на сервере пуст.
-    static func pullDay(store: DayStore, api: VajraAPI, date: String) async throws {
-        let r = try await api.getDay(date)
-        store.applyServer(date, slots: r.slots, updatedAt: r.updatedAt)
+    /// GET дня → снимок.
+    static func pullDay(store: DayStore, api: VajraBackend, date: String, gate: DaySyncGate = .shared) async throws {
+        try await gate.run(date) {
+            store.applyServer(date, try await api.getDay(date))
+        }
     }
 
-    /// Месяц: сервер ⊕ локальное. В локальный кэш кладутся только дни из окна cacheFrom… (последние ~60).
+    /// Месяц: в локальный кэш — только дни окна cacheFrom… (последние ~60) и уже известные; показ — снимок + очередь.
     static func pullRange(store: DayStore, api: VajraAPI, from: String, to: String, cacheFrom: String) async throws -> [String: [Slot]] {
         let server = try await api.getRange(from: from, to: to)
         var out: [String: [Slot]] = [:]
-        for (d, rec) in server {
-            if d >= cacheFrom || store.exists(d) {
-                out[d] = store.applyServer(d, slots: rec.slots, updatedAt: rec.updatedAt)
-            } else {
-                out[d] = rec.slots
-            }
+        for (d, day) in server {
+            out[d] = (d >= cacheFrom || store.exists(d)) ? store.applyServer(d, day) : day.slots
         }
         for d in store.allDates() where d >= from && d < to && out[d] == nil {
             out[d] = store.slots(d)

@@ -68,10 +68,58 @@ final class StatsTests: XCTestCase {
     }
 }
 
-/// Интент «+1» и хранилище на временном каталоге (как App Group), без UI и без сети.
+/// Модель сервера в памяти: тот же vajra_apply_ops (VajraOps), журнал applied, applied_tail.
+final class FakeServer: VajraBackend {
+    private let lock = NSLock()
+    private var days: [String: (slots: [Slot], applied: [String], n: Int)] = [:]
+    /// Применить следующую пачку, но «потерять» ответ (сеть оборвалась / процесс убит).
+    var loseNextResponse = false
+    var delayNs: UInt64 = 0
+    private(set) var postSizes: [Int] = []
+
+    private func day(_ d: String) -> ServerDay {
+        let x = days[d] ?? (Slots.empty(), [], 0)
+        return ServerDay(slots: x.slots, updatedAt: x.n == 0 ? nil : String(format: "2026-10-19T00:00:%06dZ", x.n), appliedTail: Array(x.applied.suffix(200)))
+    }
+
+    func slots(_ d: String) -> [Slot] { lock.withLock { days[d]?.slots ?? Slots.empty() } }
+
+    func getDay(_ date: String) async throws -> ServerDay { lock.withLock { day(date) } }
+
+    func postOps(_ date: String, _ ops: [Op]) async throws -> ServerDay {
+        if delayNs > 0 { try? await Task.sleep(nanoseconds: delayNs) }
+        if ops.count > VajraOps.batch { throw SyncError.server(400) }
+        let (r, lose): (ServerDay, Bool) = lock.withLock {
+            postSizes.append(ops.count)
+            var x = days[date] ?? (Slots.empty(), [], 0)
+            let before = x.applied
+            x.slots = VajraOps.apply(x.slots, ops, applied: &x.applied)
+            if x.applied != before { x.n += 1 }
+            days[date] = x
+            let lose = loseNextResponse
+            loseNextResponse = false
+            return (day(date), lose)
+        }
+        if lose { throw SyncError.network }
+        return r
+    }
+
+    func putDay(_ date: String, _ slots: [Slot]) async throws -> ServerDay {
+        lock.withLock {
+            var x = days[date] ?? (Slots.empty(), [], 0)
+            x.slots = Slots.merge(x.slots, slots)
+            x.n += 1
+            days[date] = x
+            return day(date)
+        }
+    }
+}
+
+/// Интент «+1», очередь операций и синк — на временном каталоге (как App Group), без UI и без сети.
 final class IntentStoreTests: XCTestCase {
     private var dir: URL!
     private var store: DayStore!
+    private let D = "2026-10-19"
     private var cal: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "Europe/Vienna")!
@@ -89,9 +137,23 @@ final class IntentStoreTests: XCTestCase {
         cal.date(from: DateComponents(year: 2026, month: 10, day: d, hour: h, minute: m, second: s))!
     }
 
-    private let D = "2026-10-19"
+    /// Эталон — прогон серверного vajra_apply_ops (Python) на тех же входах.
+    func testOpsMatchPython() {
+        let base = Slots.norm([["count": 2, "t": 10, "qm": 1], ["sleep": true, "t": 4]])
+        let ops = [Op(id: "e1", kind: .add, i: 0, t: 5, count: -1, qc: 2, qm: -2),
+                   Op(id: "e2", kind: .set, i: 1, t: 20, qa: 3, sleep: false, forgot: true),
+                   Op(id: "e1", kind: .add, i: 0, t: 99, count: 9),
+                   Op(id: "e3", kind: .set, i: 2, t: 0, count: 7)]
+        var applied: [String] = []
+        let out = VajraOps.apply(base, ops, applied: &applied)
+        XCTAssertEqual(out[0], Slot(count: 1, t: 11, qc: 2))
+        XCTAssertEqual(out[1], Slot(forgot: true, t: 20, qa: 3))
+        XCTAssertEqual(out[2], Slot(count: 7, t: 1))
+        XCTAssertEqual(applied, ["e1", "e2", "e3"])
+        XCTAssertFalse(VajraOps.validID("bad id!"))
+    }
 
-    func testIncrementIsDeltaOnCurrentSlot() async {
+    func testIncrementIsAddOnCurrentSlot() async {
         let now = at(19, 14, 20)
         let r1 = await RecollectionAction.increment(store: store, now: now, calendar: cal, api: nil)
         let r2 = await RecollectionAction.increment(store: store, now: now.addingTimeInterval(30), calendar: cal, api: nil)
@@ -101,9 +163,7 @@ final class IntentStoreTests: XCTestCase {
         let rec = store.record(D)!
         XCTAssertEqual(rec.display[57].count, 2)
         XCTAssertEqual(rec.display[57].t, VajraDate.ms(now.addingTimeInterval(30)))
-        XCTAssertEqual(rec.slots[57].count, 0)          // база не тронута — только дельты
-        XCTAssertEqual(rec.deltas.count, 2)
-        XCTAssertFalse(rec.synced)
+        XCTAssertEqual(rec.ops.count, 2)
         XCTAssertEqual(store.dirtyDates(), [D])
     }
 
@@ -114,59 +174,88 @@ final class IntentStoreTests: XCTestCase {
         XCTAssertEqual(r.total, 1)
         XCTAssertEqual(store.slots(D)[95].count, 1)
         XCTAssertEqual(store.slots("2026-10-20")[0].count, 1)
-        XCTAssertEqual(Slots.total(store.slots(D)), 1)
         XCTAssertEqual(Set(store.dirtyDates()), [D, "2026-10-20"])
     }
 
-    /// Незагруженный день: +1 ложится на СВЕЖИЙ серверный слот, а не затирает его пустой базой.
-    func testDeltaOnUnsyncedDayAddsToServer() async {
-        _ = await RecollectionAction.increment(store: store, now: at(19, 10, 0), calendar: cal, api: nil)
-        var server = Slots.empty()
-        server[40] = Slot(count: 5, sleep: true, t: 1_000)
-        server[3] = Slot(count: 2, t: 7)
+    /// Интент с сервером: +1 ложится поверх серверных данных; очередь пуста; повтор отправки ничего не меняет.
+    func testIntentSendsAndServerKeepsOthers() async {
+        let srv = FakeServer()
+        _ = try? await srv.postOps(D, [.set(40, SetFields(count: 5, sleep: true), t: 1)])
+        let r = await RecollectionAction.increment(store: store, now: at(19, 10, 0), calendar: cal, api: srv)
+        XCTAssertTrue(r.sent)
+        XCTAssertEqual(r.total, 6)
+        XCTAssertEqual(srv.slots(D)[40].count, 6)
+        XCTAssertTrue(srv.slots(D)[40].sleep)
+        XCTAssertTrue(store.record(D)!.ops.isEmpty)
+    }
+
+    /// A: PUT/POST дошёл, ответ потерян → повтор не задваивает; GET с applied_tail — без +2.
+    func testLostResponseNoDoubleApply() async throws {
+        let srv = FakeServer()
+        srv.loseNextResponse = true
+        let r = await RecollectionAction.increment(store: store, now: at(19, 10, 0), calendar: cal, api: srv)
+        XCTAssertFalse(r.sent)
+        XCTAssertEqual(srv.slots(D)[40].count, 1)          // сервер применил
+        XCTAssertEqual(store.record(D)!.ops.count, 1)       // а мы не знаем
+        // показ после GET: снимок уже содержит op, op в applied_tail → не накладываем повторно
+        try await VajraSync.pullDay(store: store, api: srv, date: D)
+        XCTAssertEqual(store.slots(D)[40].count, 1)
+        XCTAssertTrue(store.record(D)!.ops.isEmpty)
+        // повтор той же пачки (например, без GET) — сервер пропускает
         let rec = store.record(D)!
-        let body = DayStore.pushBody(rec, server: server)
-        XCTAssertEqual(body[40].count, 6)
-        XCTAssertTrue(body[40].sleep)
-        XCTAssertEqual(body[40].t, rec.deltas[0].t)        // t дельты новее серверного
-        XCTAssertEqual(body[3], Slot(count: 2, t: 7))
-        // сервер ответил тем же — дельты сняты, день чистый и загруженный
-        store.commitPush(D, response: body, updatedAt: "x", sentDeltaIds: Set(rec.deltas.map(\.id)))
-        let after = store.record(D)!
-        XCTAssertTrue(after.deltas.isEmpty)
-        XCTAssertFalse(after.dirty)
-        XCTAssertTrue(after.synced)
-        XCTAssertEqual(after.display[40].count, 6)
+        _ = rec
+        let srv2 = FakeServer()
+        srv2.loseNextResponse = true
+        let store2 = DayStore(dir: dir.appendingPathComponent("b"))
+        _ = await RecollectionAction.increment(store: store2, now: at(19, 10, 0), calendar: cal, api: srv2)
+        try await VajraSync.pushDay(store: store2, api: srv2, date: D)
+        try await VajraSync.pushDay(store: store2, api: srv2, date: D)
+        XCTAssertEqual(srv2.slots(D)[40].count, 1)
+        XCTAssertEqual(store2.slots(D)[40].count, 1)
     }
 
-    /// Серверный t новее дельты → t = серверный + 1; дельта, добавленная во время запроса, остаётся.
-    func testPushTAndDeltaAddedDuringRequest() {
-        store.addDelta(D, i: 10, count: 1, nowMs: 100)
-        let rec = store.record(D)!
-        var server = Slots.empty(); server[10] = Slot(count: 3, t: 500)
-        let body = DayStore.pushBody(rec, server: server)
-        XCTAssertEqual(body[10].count, 4)
-        XCTAssertEqual(body[10].t, 501)
-        store.addDelta(D, i: 10, count: 1, nowMs: 200)          // пришла во время PUT
-        store.commitPush(D, response: body, updatedAt: nil, sentDeltaIds: Set(rec.deltas.map(\.id)))
-        let after = store.record(D)!
-        XCTAssertEqual(after.deltas.count, 1)
-        XCTAssertEqual(after.display[10].count, 5)
-        XCTAssertTrue(after.needsPush)
+    /// B: два параллельных push одной очереди (два процесса — два DayStore на одной папке, свои «шлюзы»).
+    func testParallelPushesNoDoubleApply() async throws {
+        let srv = FakeServer()
+        srv.delayNs = 50_000_000
+        for k in 0..<5 { store.add(D, i: 8, count: 1, nowMs: Int64(1_000 + k)) }
+        let other = DayStore(dir: dir)
+        let g1 = DaySyncGate(), g2 = DaySyncGate()
+        async let a: Void = VajraSync.pushDay(store: store, api: srv, date: D, gate: g1)
+        async let b: Void = VajraSync.pushDay(store: other, api: srv, date: D, gate: g2)
+        async let c: Void = VajraSync.pushDay(store: store, api: srv, date: D, gate: g1)
+        _ = try await (a, b, c)
+        XCTAssertEqual(srv.slots(D)[8].count, 5)
+        XCTAssertEqual(store.slots(D)[8].count, 5)
+        XCTAssertTrue(store.record(D)!.ops.isEmpty)
     }
 
-    func testMinusDeltaClampsAtZero() {
-        var server = Slots.empty(); server[5] = Slot(count: 1, t: 3)
-        let ds = [Delta(id: "a", i: 5, count: -1, t: 10), Delta(id: "b", i: 5, count: -1, t: 11)]
-        XCTAssertEqual(DayStore.applyForPush(ds, to: server)[5].count, 0)
+    /// Старый ответ (снимок старше локального) не откатывает показ.
+    func testStaleSnapshotIgnored() async throws {
+        let srv = FakeServer()
+        store.add(D, i: 3, count: 2, nowMs: 10)
+        let old = try await srv.getDay(D)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        store.applyServer(D, old)
+        XCTAssertEqual(store.slots(D)[3].count, 2)
     }
 
-    /// Правка (Сон) → +1 из интента в тот же слот → ↶ НЕ трогает слот.
-    func testUndoSkipsSlotChangedByIntentAfterwards() async {
-        store.applyServer(D, slots: Slots.empty(), updatedAt: nil)
+    /// set sleep не трогает count — и памятования с другого устройства не затираются.
+    func testSetSleepKeepsCountFromOtherDevice() async throws {
+        let srv = FakeServer()
+        store.set(D, nowMs: 100, [(12, SetFields(sleep: true))])
+        _ = try await srv.postOps(D, [.add(12, count: 3, t: 50)])       // веб/другой телефон, раньше нашей отметки
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.slots(D)[12].count, 3)
+        XCTAssertTrue(srv.slots(D)[12].sleep)
+        XCTAssertEqual(store.slots(D)[12].count, 3)
+    }
+
+    /// Сон (set) → +1 из интента в тот же слот → ↶ НЕ трогает слот.
+    func testUndoSkipsSlotChangedAfterwards() async {
         let now = at(19, 12, 0)
         let i = VajraDate.slotIndex(now, calendar: cal)
-        let edit = store.setSlots(D, nowMs: VajraDate.ms(now)) { $0[i].sleep = true }
+        let edit = store.set(D, nowMs: VajraDate.ms(now), [(i, SetFields(sleep: true))])
         XCTAssertEqual(edit.changes.count, 1)
         _ = await RecollectionAction.increment(store: store, now: now.addingTimeInterval(5), calendar: cal, api: nil)
         let r = store.revert(D, edit.changes, nowMs: VajraDate.ms(now.addingTimeInterval(10)))
@@ -175,40 +264,92 @@ final class IntentStoreTests: XCTestCase {
         XCTAssertEqual(r.slots[i].count, 1)
     }
 
-    /// Свою нетронутую правку ↶ откатывает; +1 откатывается обратной дельтой (и после отправки тоже).
-    func testUndoRevertsOwnChanges() {
-        store.applyServer(D, slots: Slots.empty(), updatedAt: nil)
-        let e1 = store.setSlots(D, nowMs: 1_000) { $0[7].forgot = true }
+    /// Своё ↶ откатывает: set — прежние поля; +1 — обратной add, и после отправки тоже.
+    func testUndoRevertsOwnChanges() async throws {
+        let srv = FakeServer()
+        _ = try await srv.postOps(D, [.add(8, count: 4, t: 50)])
+        try await VajraSync.pullDay(store: store, api: srv, date: D)
+        let e1 = store.set(D, nowMs: 1_000, [(7, SetFields(forgot: true))])
         XCTAssertEqual(store.revert(D, e1.changes, nowMs: 2_000).skipped, 0)
         XCTAssertFalse(store.slots(D)[7].forgot)
-
-        var server = Slots.empty(); server[8] = Slot(count: 4, t: 50)
-        store.applyServer(D, slots: server, updatedAt: nil)
-        let plus = store.addDelta(D, i: 8, count: 1, nowMs: 3_000)
-        let rec = store.record(D)!
-        store.commitPush(D, response: DayStore.pushBody(rec, server: server), updatedAt: nil, sentDeltaIds: Set(rec.deltas.map(\.id)))
+        let plus = store.add(D, i: 8, count: 1, nowMs: 3_000)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
         XCTAssertEqual(store.slots(D)[8].count, 5)
-        let r = store.revert(D, [plus.change], nowMs: 4_000)
-        XCTAssertEqual(r.skipped, 0)
-        XCTAssertEqual(r.slots[8].count, 4)
+        store.revert(D, [plus.change], nowMs: 4_000)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.slots(D)[8].count, 4)
+        XCTAssertFalse(srv.slots(D)[7].forgot)
     }
 
-    func testResetDayUsesTAboveDayMax() {
-        var server = Slots.empty(); server[1] = Slot(count: 2, t: 9_999_999_999_999)
-        store.applyServer(D, slots: server, updatedAt: nil)
+    func testResetDayUsesTAboveDayMax() async throws {
+        let srv = FakeServer()
+        _ = try await srv.postOps(D, [.add(1, count: 2, qc: 1, t: 9_999_999_999_999)])
+        try await VajraSync.pullDay(store: store, api: srv, date: D)
         let r = store.resetDay(D, nowMs: 1_000)
-        XCTAssertTrue(r.slots.allSatisfy { $0.t == 10_000_000_000_000 && $0.count == 0 })
-        XCTAssertEqual(Slots.merge(r.slots, server)[1].count, 0)
+        XCTAssertTrue(r.slots.allSatisfy { $0.count == 0 && $0.qc == 0 && !$0.sleep })
+        XCTAssertEqual(r.slots[1].t, 10_000_000_000_000)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.slots(D)[1].count, 0)
     }
 
     func testPruneKeepsPendingAndRecent() {
-        store.put("2026-07-01", .init(slots: Slots.empty(), updatedAt: nil, dirty: false, synced: true))
-        store.put("2026-07-02", .init(slots: Slots.empty(), updatedAt: nil, dirty: true, synced: true))
-        store.put("2026-07-03", .init(slots: Slots.empty(), updatedAt: nil, dirty: false, synced: false,
-                                      deltas: [Delta(id: "x", i: 0, count: 1, t: 1)]))
-        store.put("2026-10-01", .init(slots: Slots.empty(), updatedAt: nil, dirty: false, synced: true))
+        store.put("2026-07-01", .init(slots: Slots.empty(), updatedAt: nil))
+        store.put("2026-07-03", .init(slots: Slots.empty(), updatedAt: nil, ops: [.add(0, count: 1, t: 1)]))
+        store.put("2026-10-01", .init(slots: Slots.empty(), updatedAt: nil))
         store.prune(today: D)
-        XCTAssertEqual(store.allDates(), ["2026-07-02", "2026-07-03", "2026-10-01"])
+        XCTAssertEqual(store.allDates(), ["2026-07-03", "2026-10-01"])
+    }
+
+    /// Миграция билда 2: deltas → add с теми же id/t; dirty-снимок — один раз старым PUT.
+    func testMigrationFromBuild2() async throws {
+        let legacy: [String: Any] = [
+            "slots": Slots.toJSON({ var s = Slots.empty(); s[2] = Slot(sleep: true, t: 7_000); return s }()),
+            "dirty": true, "synced": true, "updatedAt": "2026-10-19T08:00:00Z",
+            "deltas": [["id": "D-1", "i": 9, "count": 1, "qc": 1, "qm": 0, "qa": 0, "t": 8_000]],
+        ]
+        try JSONSerialization.data(withJSONObject: legacy).write(to: dir.appendingPathComponent(D + ".json"))
+        let rec = store.record(D)!
+        XCTAssertTrue(rec.legacyDirty)
+        XCTAssertEqual(rec.ops, [Op(id: "D-1", kind: .add, i: 9, t: 8_000, count: 1, qc: 1, qm: 0, qa: 0)])
+        XCTAssertEqual(rec.display[9].count, 1)
+        let srv = FakeServer()
+        _ = try await srv.postOps(D, [.add(2, count: 4, t: 100)])            // на сервере уже были памятования
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertTrue(srv.slots(D)[2].sleep)                                 // PUT слил снимок по t
+        XCTAssertEqual(srv.slots(D)[9].count, 1)
+        XCTAssertEqual(srv.slots(D)[9].qc, 1)
+        let after = store.record(D)!
+        XCTAssertFalse(after.legacyDirty)
+        XCTAssertTrue(after.ops.isEmpty)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)       // повтор — ничего не задваивает
+        XCTAssertEqual(srv.slots(D)[9].count, 1)
+    }
+
+    /// Очередь > 200 уходит кусками по 200.
+    func testPushInChunks() async throws {
+        let srv = FakeServer()
+        for k in 0..<250 { store.add(D, i: 4, count: 1, nowMs: Int64(k + 1)) }
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.postSizes, [200, 50])
+        XCTAssertEqual(srv.slots(D)[4].count, 250)
+        XCTAssertTrue(store.record(D)!.ops.isEmpty)
+    }
+
+    /// Устаревший set (op.t < t слота) не применяется — и в Swift, и на сервере (id записан).
+    func testStaleSetIgnored() {
+        var s = Slots.empty(); s[7] = Slot(count: 10, t: 2_000)
+        var applied: [String] = []
+        let out = VajraOps.apply(s, [Op(id: "st1", kind: .set, i: 7, t: 1_000, count: 0), Op(id: "st2", kind: .add, i: 7, t: 1_000, count: 1)], applied: &applied)
+        XCTAssertEqual(out[7], Slot(count: 11, t: 2_001))
+        XCTAssertEqual(applied, ["st1", "st2"])
+        var a2: [String] = []
+        XCTAssertEqual(VajraOps.apply(s, [Op(id: "big", kind: .add, i: 7, t: 1, count: 100_001)], applied: &a2)[7].count, 10)
+    }
+
+    func testISOCompareMixedFormats() {
+        XCTAssertTrue(VajraDate.isoLess("2026-01-01T01:01:01Z", "2026-01-01T01:01:01.000005Z"))
+        XCTAssertFalse(VajraDate.isoLess("2026-01-01T01:01:01.000005Z", "2026-01-01T01:01:01Z"))
+        XCTAssertTrue(VajraDate.isoLess("2026-01-01T01:01:01.5Z", "2026-01-01T01:01:02Z"))
     }
 
     func testConcurrentIncrementsAreNotLost() async {

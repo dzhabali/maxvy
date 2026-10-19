@@ -11,24 +11,20 @@ enum RecollectionAction {
     }
 
     /// +1 в текущий слот сегодняшнего дня (дата и слот — из ОДНОГО момента now, по местному времени)
-    /// как ДЕЛЬТА. Незагруженный день сначала пробуем подтянуть (pullApi, ~3 с); затем — отправка (api).
+    /// операцией add (безопасна и на незагруженном дне); если дан api — сразу пробует отправить.
     @discardableResult
-    static func increment(store: DayStore, now: Date = Date(), calendar: Calendar = .current,
-                          api: VajraAPI?, pullApi: VajraAPI? = nil) async -> Result {
+    static func increment(store: DayStore, now: Date = Date(), calendar: Calendar = .current, api: VajraBackend?) async -> Result {
         let day = VajraDate.string(now, calendar: calendar)
         let i = VajraDate.slotIndex(now, calendar: calendar)
-        if let pullApi, !store.isSynced(day) {
-            try? await VajraSync.pullDay(store: store, api: pullApi, date: day)
-        }
-        var slots = store.addDelta(day, i: i, count: 1, nowMs: VajraDate.ms(now)).slots
+        var slots = store.add(day, i: i, count: 1, nowMs: VajraDate.ms(now)).slots
         VajraNotify.post()
         var sent = false
         if let api {
             do {
                 try await VajraSync.pushDay(store: store, api: api, date: day)
-                sent = store.record(day)?.deltas.isEmpty == true
+                sent = store.record(day)?.ops.isEmpty == true
             } catch {
-                sent = false   // 401 / нет сети: дельта остаётся и дойдёт из приложения
+                sent = false   // 401 / нет сети: операция остаётся и дойдёт из приложения
             }
             slots = store.slots(day)
             VajraNotify.post()
@@ -56,9 +52,7 @@ struct IncrementRecollectionIntent: AppIntent {
     init() {}
 
     func perform() async throws -> some IntentResult & ReturnsValue<Int> & ProvidesDialog {
-        let r = await RecollectionAction.increment(store: .shared,
-                                                   api: VajraAPI(session: VajraAPI.makeSession(timeout: 5)),
-                                                   pullApi: VajraAPI(session: VajraAPI.makeSession(timeout: 3)))
+        let r = await RecollectionAction.increment(store: .shared, api: VajraAPI(session: VajraAPI.makeSession(timeout: 5)))
         RecollectionAction.reloadWidgets()
         let text = r.sent ? "Сегодня \(r.total)" : "Сохранено на телефоне. Сегодня \(r.total)"
         return .result(value: r.total, dialog: IntentDialog(stringLiteral: text))

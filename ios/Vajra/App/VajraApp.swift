@@ -84,7 +84,7 @@ enum DemoData {
                 }
                 if n == 0 && rng.next() % 6 == 0 { s[i].forgot = true; s[i].t = 1 }
             }
-            store.put(d, .init(slots: s, updatedAt: nil, dirty: false, synced: true))
+            store.put(d, .init(slots: s, updatedAt: nil, fetchedAt: Date().timeIntervalSince1970))
         }
     }
 
