@@ -47,7 +47,7 @@ struct TrackerView: View {
                     PingOffer().padding(.horizontal, 16).padding(.top, 10)
                     NeighborSlot(index: ci - 1, plus5: true).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 6)
                     if let t = model.cardText {
-                        ViewCardView(text: t) { model.advanceCard() }.padding(.horizontal, 16).padding(.bottom, 8)
+                        ViewCardView(text: t, src: model.cardSrc) { model.advanceCard() }.padding(.horizontal, 16).padding(.bottom, 8)
                     }
                     MainHoldButton().padding(.horizontal, 16).padding(.bottom, 10)
                     HStack(spacing: 8) {
@@ -233,22 +233,35 @@ struct MainHoldButton: View {
     }
 }
 
-/// Карточка воззрения: одна фраза, спокойно, мелко; тап — следующая.
+/// Карточка воззрения: цитата до 4 строк + «— источник»; высота зарезервирована под 4 строки,
+/// чтобы главная кнопка не прыгала при смене длины. Тап — следующая.
 struct ViewCardView: View {
+    /// Длинной цитате (до ~220 знаков) — мельче, чтобы влезла в 4 строки и на ширине iPhone SE.
+    static func fontSize(_ n: Int) -> CGFloat { n > 170 ? 11 : n > 120 ? 12 : 13 }
+
     let text: String
+    var src: String? = nil
     let next: () -> Void
     var body: some View {
         Button(action: next) {
-            Text(text)
-                .font(.system(size: 13)).italic()
-                .foregroundStyle(Palette.text2)
+            VStack(spacing: 4) {
+                Text(text)
+                    .font(.system(size: Self.fontSize(text.count))).italic()
+                    .foregroundStyle(Palette.text2)
+                    .lineSpacing(1.5)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.85)
+                    .frame(minHeight: 70)   // ≈ 4 строки: кнопка не прыгает от короткой к длинной цитате
+                Text("— " + (src ?? ""))
+                    .font(.system(size: 11)).foregroundStyle(Palette.text3)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .opacity(src?.isEmpty == false ? 1 : 0)
+            }
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                .padding(.horizontal, 10).padding(.vertical, 10)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.border))
-                .contentTransition(.opacity)
                 .animation(.easeInOut(duration: 0.3), value: text)
         }
         .buttonStyle(.plain)

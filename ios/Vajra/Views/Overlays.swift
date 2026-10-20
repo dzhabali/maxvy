@@ -1,45 +1,5 @@
 import SwiftUI
 
-/// «Как вспомнил?» — после засчитанного удержания; 12 с без ответа — закрывается без оценки.
-struct QualityOverlay: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            if model.qPending != nil {
-                Color.black.opacity(0.35).ignoresSafeArea()
-                    .onTapGesture { model.qClose() }
-                    .transition(.opacity)
-                VStack(spacing: 14) {
-                    Text("Как вспомнил?").font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text)
-                    HStack(spacing: 8) {
-                        qButton("Ясно", .qc, bg: 0xecfdf5, border: 0x6ee7b7, fg: 0x065f46)
-                        qButton("Средне", .qm, bg: 0xfffbeb, border: 0xfcd34d, fg: 0x92400e)
-                        qButton("Автомат", .qa, bg: 0xf3f4f6, border: 0xd1d5db, fg: 0x4b5563)
-                    }
-                }
-                .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 18)
-                .frame(maxWidth: 520)
-                .background(UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20)
-                    .fill(Palette.surface).ignoresSafeArea(edges: .bottom))
-                .shadow(color: .black.opacity(0.15), radius: 15, y: -8)
-                .transition(.move(edge: .bottom))
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: model.qPending)
-    }
-
-    private func qButton(_ t: String, _ k: QKey, bg: UInt32, border: UInt32, fg: UInt32) -> some View {
-        Button { model.qPick(k) } label: {
-            Text(t).font(.system(size: 16, weight: .semibold)).foregroundStyle(Color(hex: fg))
-                .frame(maxWidth: .infinity).padding(.vertical, 18)
-                .background(Color(hex: bg), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: border)))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// Ачивки 25 / 50 / 75 / 100 (Кхечара) — один раз за день, в момент достижения.
 struct AchievementOverlay: View {
     @EnvironmentObject private var model: AppModel

@@ -63,6 +63,14 @@ final class BankPingTests: XCTestCase {
         XCTAssertEqual(store.nextPrompt().q, Bank.neutralQuestion)
     }
 
+    func testBankDecodesWithAndWithoutSrc() throws {
+        let js = #"{"version":2,"views":[{"id":"a","text":"тест 1","tag":"x","src":"источник 1"},{"id":"b","text":"тест 2","tag":"y"}],"prompts":[{"id":"p","q":"тест 3","hint":"тест 4","tag":"z"}]}"#
+        let b = try JSONDecoder().decode(Bank.self, from: Data(js.utf8))
+        XCTAssertEqual(b.views[0].src, "источник 1")
+        XCTAssertNil(b.views[1].src)
+        XCTAssertEqual(b.prompts[0].hint, "тест 4")
+    }
+
     // MARK: расписание
 
     func testScheduleWindowGapLimit() {
@@ -115,21 +123,20 @@ final class BankPingTests: XCTestCase {
 
     // MARK: ответ на пинг
 
-    func testPingAnswerIsOneAddWithQ() {
+    func testPingAnswerIsOneAddWithoutQ() {
         let store = DayStore(dir: dir.appendingPathComponent("days"))
         let cal = vienna()
         let now = date(cal, 2026, 10, 20, 23, 50)
-        let r = PingAnswer.apply(store: store, key: .qm, now: now, calendar: cal)
+        let r = PingAnswer.apply(store: store, now: now, calendar: cal)
         XCTAssertEqual(r.date, "2026-10-20")
         let ops = store.record("2026-10-20")?.ops ?? []
         XCTAssertEqual(ops.count, 1)
         XCTAssertEqual(ops[0].kind, .add)
         XCTAssertEqual(ops[0].i, 95)
         XCTAssertEqual(ops[0].count, 1)
-        XCTAssertEqual(ops[0].qm, 1)
-        XCTAssertEqual(ops[0].qc, 0)
-        XCTAssertEqual(PingAnswer.key(forAction: "qa"), .qa)
-        XCTAssertNil(PingAnswer.key(forAction: UNNotificationDefaultActionIdentifierForTests))
+        XCTAssertEqual((ops[0].qc ?? 0) + (ops[0].qm ?? 0) + (ops[0].qa ?? 0), 0)
+        XCTAssertEqual(store.slots("2026-10-20")[95].count, 1)
+        XCTAssertNotEqual(PingAnswer.plusAction, UNNotificationDefaultActionIdentifierForTests)
     }
 
     // MARK: карточка
@@ -146,6 +153,10 @@ final class BankPingTests: XCTestCase {
         XCTAssertEqual(model.cardText, c0)
         model.holdCompleted()
         XCTAssertNotEqual(model.cardText, c0)
+        // удержание — +1 без оценки
+        let i = VajraDate.slotIndex(Date()), s = model.slots[i]
+        XCTAssertEqual(s.qc + s.qm + s.qa, i == 3 ? 5 : 0)
+        XCTAssertGreaterThanOrEqual(s.count, 1)
         settings.cardEnabled = false
         model.showCurrentCard()
         XCTAssertNil(model.cardText)

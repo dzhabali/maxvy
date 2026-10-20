@@ -3,7 +3,7 @@ import Foundation
 /// Банк воззрений (карточка над кнопкой) и вопросов (пинги). Живёт только на сервере
 /// (`GET /vajra/api/bank`, за входом Life); в репозитории текстов нет — здесь лишь формат и кэш.
 struct Bank: Codable, Equatable {
-    struct ViewCard: Codable, Equatable { var id: String; var text: String; var tag: String? }
+    struct ViewCard: Codable, Equatable { var id: String; var text: String; var tag: String?; var src: String? = nil }
     struct Prompt: Codable, Equatable { var id: String; var q: String; var hint: String?; var tag: String? }
 
     var version: Int = 0

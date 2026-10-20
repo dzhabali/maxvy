@@ -55,6 +55,8 @@ struct VajraApp: App {
                 .environmentObject(model)
                 .environmentObject(settings)
                 .preferredColorScheme(.light)
+                // демо-проверка вёрстки на ширине iPhone SE (375 pt) на любом симуляторе
+                .frame(maxWidth: ProcessInfo.processInfo.arguments.contains("-narrow") ? 375 : .infinity)
                 .task { await auth.check() }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -89,7 +91,7 @@ struct VajraShortcuts: AppShortcutsProvider {
 enum DemoData {
     /// Нейтральный банк для демо и скриншотов (настоящие тексты — только на сервере).
     static let bank = Bank(version: 1,
-                           views: [Bank.ViewCard(id: "d1", text: "Здесь будет фраза-воззрение из банка на сервере", tag: nil),
+                           views: [Bank.ViewCard(id: "d1", text: "Демонстрационная цитата длиной около двухсот двадцати знаков: здесь будет дословная строка из банка на сервере, а в публичном репозитории только этот нейтральный текст, чтобы проверить перенос строк, масштаб шрифта и подпись.", tag: nil, src: "Демо-источник"),
                                    Bank.ViewCard(id: "d2", text: "Вторая демонстрационная фраза", tag: nil)],
                            prompts: [Bank.Prompt(id: "p1", q: "Демо-вопрос", hint: "подсказка", tag: nil)])
 

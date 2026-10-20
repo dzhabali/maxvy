@@ -22,10 +22,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    struct QPending: Equatable { let date: String; let index: Int }
-
     static let holdSeconds: Double = 3        // HOLD_MS
-    static let qAutoClose: Double = 12        // Q_AUTOCLOSE_MS
     static let timerDuration: Double = 3 * 60 // TIMER_DURATION
     static let timerMaxOvertime: Double = 12 * 3600
     static let undoMax = 20
@@ -35,7 +32,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var slots: [Slot]
     @Published var histOpen = false
     @Published var sleepTillDone = false
-    @Published private(set) var qPending: QPending?
     @Published var achievement: Milestone?
     @Published private(set) var toast: String?
     @Published private(set) var timerStart: Date?
@@ -54,6 +50,8 @@ final class AppModel: ObservableObject {
     let settings: VajraSettings
     /// Фраза карточки воззрения (nil — карточка скрыта: выключена или банк пуст).
     @Published private(set) var cardText: String?
+    /// Источник цитаты карточки («— src»).
+    @Published private(set) var cardSrc: String?
     private let api: VajraAPI
     private let shortAPI = VajraAPI(session: VajraAPI.makeSession(timeout: 6))
     weak var auth: AuthManager?
@@ -62,7 +60,6 @@ final class AppModel: ObservableObject {
     private var prevTotal = 0
     private var syncTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
-    private var qTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var clockTimer: Timer?
     private var lastKnownToday: String
@@ -97,17 +94,21 @@ final class AppModel: ObservableObject {
         let vs = bank.bank.views
         guard settings.cardEnabled, let id = bank.draw("views", ids: vs.map(\.id)) else { showCurrentCard(); return }
         bank.defaults.set(id, forKey: Self.cardKey)
-        cardText = vs.first { $0.id == id }?.text
+        let v = vs.first { $0.id == id }
+        cardText = v?.text
+        cardSrc = v?.src
     }
 
     /// Показать текущую (после смены настроек / загрузки банка), не двигая мешок.
     func showCurrentCard() {
-        guard settings.cardEnabled else { cardText = nil; return }
+        guard settings.cardEnabled else { cardText = nil; cardSrc = nil; return }
         let vs = bank.bank.views
         if let id = bank.defaults.string(forKey: Self.cardKey), let v = vs.first(where: { $0.id == id }) {
             cardText = v.text
+            cardSrc = v.src
         } else if vs.isEmpty {
             cardText = nil
+            cardSrc = nil
         } else {
             advanceCard()
         }
@@ -281,7 +282,7 @@ final class AppModel: ObservableObject {
 
     private var nowMs: Int64 { VajraDate.ms(Date()) }
 
-    /// Удержание 3 с засчитано: +1 в текущий слот сегодня → таймер с нуля → «Как вспомнил?».
+    /// Удержание 3 с засчитано: +1 (без оценки) в текущий слот сегодня → таймер с нуля → следующая карточка.
     func holdCompleted() {
         ensureToday()
         let now = Date()
@@ -290,31 +291,6 @@ final class AppModel: ObservableObject {
         afterEdit(d, r.slots, changes: [r.change])
         advanceCard()
         startTimer()
-        qPending = QPending(date: d, index: i)
-        qTask?.cancel()
-        qTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.qAutoClose * 1e9))
-            guard !Task.isCancelled else { return }
-            self?.qClose()
-        }
-    }
-
-    func qClose() { qTask?.cancel(); qPending = nil }
-
-    /// Оценка — add; в отмене склеивается с +1 (откат снимает и +1, и оценку).
-    func qPick(_ key: QKey) {
-        guard let p = qPending else { return }
-        qClose()
-        guard p.date == selectedDate else { return }
-        let r = store.add(p.date, i: p.index, q: key, nowMs: nowMs)
-        var changes = [r.change]
-        if let last = undo.last, last.date == p.date, last.changes.count == 1,
-           case let .add(i, c, qc, qm, qa) = last.changes[0], i == p.index,
-           case let .add(_, _, nqc, nqm, nqa) = r.change {
-            undo.removeLast()
-            changes = [.add(i: i, count: c, qc: qc + nqc, qm: qm + nqm, qa: qa + nqa)]
-        }
-        afterEdit(p.date, r.slots, changes: changes)
     }
 
     private func setFields(_ edits: [(i: Int, fields: SetFields)]) {

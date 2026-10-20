@@ -30,7 +30,6 @@ struct MainView: View {
         }
         .background(Palette.bg.ignoresSafeArea())
         .overlay(alignment: .top) { ToastView(text: model.toast) }
-        .overlay { QualityOverlay() }
         .overlay { AchievementOverlay() }
     }
 }

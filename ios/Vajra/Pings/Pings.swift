@@ -74,18 +74,18 @@ enum PingSchedule {
     }
 }
 
-/// Ответ на пинг: та же операция, что засчёт + оценка — add {count 1, q 1} в слот момента ответа.
+/// Ответ на пинг «Вспомнил +1»: та же операция, что засчёт удержанием — add {count 1} в слот момента ответа.
 enum PingAnswer {
     static let category = "PING"
     static let prefix = "ping-"
 
-    static func key(forAction id: String) -> QKey? { QKey(rawValue: id) }
+    static let plusAction = "plus1"
 
     @discardableResult
-    static func apply(store: DayStore, key: QKey, now: Date = Date(), calendar: Calendar = .current) -> (date: String, change: SlotChange) {
+    static func apply(store: DayStore, now: Date = Date(), calendar: Calendar = .current) -> (date: String, change: SlotChange) {
         let d = VajraDate.string(now, calendar: calendar)
         let i = VajraDate.slotIndex(now, calendar: calendar)
-        let r = store.add(d, i: i, count: 1, q: key, qAmount: 1, nowMs: VajraDate.ms(now))
+        let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))
         return (d, r.change)
     }
 }
@@ -105,9 +105,7 @@ final class PingScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     func registerAtLaunch() {
         center.delegate = self
-        let acts = [UNNotificationAction(identifier: QKey.qc.rawValue, title: "Ясно", options: []),
-                    UNNotificationAction(identifier: QKey.qm.rawValue, title: "Средне", options: []),
-                    UNNotificationAction(identifier: QKey.qa.rawValue, title: "Автомат", options: [])]
+        let acts = [UNNotificationAction(identifier: PingAnswer.plusAction, title: "Вспомнил +1", options: [])]
         center.setNotificationCategories([UNNotificationCategory(identifier: PingAnswer.category, actions: acts, intentIdentifiers: [])])
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.bgTask, using: nil) { task in
             Task { @MainActor in
@@ -161,15 +159,14 @@ final class PingScheduler: NSObject, UNUserNotificationCenterDelegate {
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let id = response.actionIdentifier
         guard response.notification.request.content.categoryIdentifier == PingAnswer.category,
-              let key = PingAnswer.key(forAction: id) else { return }   // тап по самому пингу — просто открыть
-        await handle(key)
+              response.actionIdentifier == PingAnswer.plusAction else { return }   // тап по самому пингу — просто открыть
+        await handle()
     }
 
-    private func handle(_ key: QKey) async {
+    private func handle() async {
         let bg = BackgroundTask(name: "vajra-ping")
-        let r = PingAnswer.apply(store: store, key: key)
+        let r = PingAnswer.apply(store: store)
         VajraNotify.post()
         RecollectionAction.reloadWidgets()
         onAnswered?()
@@ -216,7 +213,7 @@ struct SettingsSheet: View {
                     DatePicker("До", selection: minutes($settings.endMin), displayedComponents: .hourAndMinute)
                     Toggle("Звук", isOn: $settings.sound)
                 } header: { Text("Пинги на экран блокировки") } footer: {
-                    Text("Случайные моменты в окне, не чаще раза в 45 мин. Ответ «Ясно / Средне / Автомат» прямо с экрана блокировки засчитывает +1 с оценкой.")
+                    Text("Случайные моменты в окне, не чаще раза в 45 мин. Кнопка «Вспомнил +1» прямо с экрана блокировки засчитывает +1.")
                 }
             }
             .navigationTitle("Настройки")
