@@ -214,6 +214,8 @@ struct SettingsSheet: View {
                     Toggle("Карточка воззрения", isOn: $settings.cardEnabled)
                 } footer: { Text("Фраза над главной кнопкой; меняется после каждого +1 и по тапу.") }
 
+                DiagSection()
+
                 Section {
                     Toggle("Не гасить экран", isOn: $settings.keepAwake)
                 } footer: { Text("Пока Ваджра открыта, айфон не блокируется. Батарея расходуется быстрее.") }
@@ -282,6 +284,33 @@ struct PingOffer: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.border))
+        }
+    }
+}
+
+
+/// Настройки → «Диагностика»: хвост общего diag.log (приложение, виджеты, интенты).
+struct DiagSection: View {
+    @State private var text = DiagLog.tail()
+
+    var body: some View {
+        Section("Диагностика") {
+            ScrollView {
+                Text(text.isEmpty ? "лог пуст" : text)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Palette.text2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(height: 220)
+            HStack {
+                Button("Обновить") { text = DiagLog.tail() }
+                Spacer()
+                Button("Очистить") { DiagLog.clear(); text = "" }
+                Spacer()
+                Button("Скопировать") { UIPasteboard.general.string = DiagLog.tail(500) }
+            }
+            .buttonStyle(.borderless)
         }
     }
 }

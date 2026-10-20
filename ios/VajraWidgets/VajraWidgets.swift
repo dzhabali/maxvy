@@ -29,27 +29,19 @@ struct CountProvider: TimelineProvider {
         completion(context.isPreview ? placeholder(in: context) : Self.entry(at: Date()))
     }
 
-    /// Запись сейчас + на начало каждого следующего 15-минутного слота (4 часа вперёд).
-    /// Счёт будущих записей берётся из текущего файла дня; после полуночи — новый день (0).
+    /// Одна запись — свежее чтение store; следующий запрос — на начало следующего слота
+    /// (а не цепочка на 4 ч с замороженными числами).
     func getTimeline(in context: Context, completion: @escaping (Timeline<CountEntry>) -> Void) {
         let now = Date()
-        let store = DayStore.shared
-        let today = VajraDate.string(now)
-        let slots = store.slots(today)
-        var entries: [CountEntry] = []
-        var t = now
-        for _ in 0..<17 {
-            let same = VajraDate.string(t) == today
-            let i = VajraDate.slotIndex(t)
-            entries.append(CountEntry(date: t, total: same ? Slots.total(slots) : 0, slotCount: same ? slots[i].count : 0, slotIndex: i))
-            t = VajraDate.nextSlotStart(after: t)
-        }
-        completion(Timeline(entries: entries, policy: .atEnd))
+        let e = Self.entry(at: now)
+        DiagLog.log("count getTimeline", "\(context.family) total \(e.total) slot \(Slots.time(e.slotIndex)) slotCount \(e.slotCount)")
+        completion(Timeline(entries: [e], policy: .after(VajraDate.nextSlotStart(after: now))))
     }
 
     static func entry(at now: Date) -> CountEntry {
         let slots = DayStore.shared.slots(VajraDate.string(now))
         let i = VajraDate.slotIndex(now)
+        DiagLog.log("count entry", "total \(Slots.total(slots)) slot \(Slots.time(i)) slotCount \(slots[i].count) container …/\(DiagLog.containerTail)")
         return CountEntry(date: now, total: Slots.total(slots), slotCount: slots[i].count, slotIndex: i)
     }
 }
@@ -162,7 +154,10 @@ struct QuoteProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuoteEntry>) -> Void) {
-        completion(Timeline(entries: Self.entries(now: Date(), count: 17), policy: .atEnd))
+        let now = Date()
+        let e = Self.entries(now: now, count: 1)
+        DiagLog.log("quote getTimeline", "\(context.family) total \(e[0].total) quote \(e[0].medium?.id ?? "nil")")
+        completion(Timeline(entries: e, policy: .after(VajraDate.nextSlotStart(after: now))))
     }
 
     /// Сейчас + начало каждого следующего слота (4 ч); цитата — по (дата, слот), счёт — как у CountWidget.

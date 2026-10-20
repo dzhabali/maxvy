@@ -188,6 +188,11 @@ final class DayStore {
     /// Показываемые слоты дня.
     func slots(_ date: String) -> [Slot] { record(date)?.display ?? Slots.empty() }
 
+    /// Время изменения файла дня (для опроса приложением, если Darwin-уведомление не дошло).
+    func mtime(_ date: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url(date).path))?[.modificationDate] as? Date
+    }
+
     func exists(_ date: String) -> Bool { FileManager.default.fileExists(atPath: url(date).path) }
 
     func allDates() -> [String] {

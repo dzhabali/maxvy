@@ -62,6 +62,8 @@ final class AppModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var clockTimer: Timer?
+    private var fileTimer: Timer?
+    private var lastMtime: Date?
     private var lastKnownToday: String
     private var monthDirty: Set<String> = []
 
@@ -146,8 +148,19 @@ final class AppModel: ObservableObject {
         ensureToday()
         restoreTimer()
         reload()
+        DiagLog.log("scenePhase active", "total \(total)")
         VajraNotify.observe { [weak self] in
-            Task { @MainActor in self?.reload() }
+            Task { @MainActor in
+                guard let self else { return }
+                let before = self.total
+                self.reload()
+                DiagLog.log("darwin notify → reload", "\(before) → \(self.total)")
+            }
+        }
+        lastMtime = store.mtime(selectedDate)
+        fileTimer?.invalidate()
+        fileTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkFile() }
         }
         clockTimer?.invalidate()
         clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -163,7 +176,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Раз в 5 с: файл дня изменился другим процессом → перечитать.
+    private func checkFile() {
+        let m = store.mtime(selectedDate)
+        guard m != lastMtime else { return }
+        lastMtime = m
+        let before = total
+        if reload() { DiagLog.log("file changed → reload", "\(before) → \(total)") }
+    }
+
     func wentBackground() {
+        fileTimer?.invalidate()
+        fileTimer = nil
         clockTimer?.invalidate()
         clockTimer = nil
         pollTask?.cancel()
@@ -289,6 +313,7 @@ final class AppModel: ObservableObject {
         let d = VajraDate.string(now), i = VajraDate.slotIndex(now)
         let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))
         afterEdit(d, r.slots, changes: [r.change])
+        DiagLog.log("holdCompleted", "slot \(Slots.time(i)) total \(total)")
         advanceCard()
         startTimer()
     }
