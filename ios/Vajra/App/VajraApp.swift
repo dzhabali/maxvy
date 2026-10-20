@@ -1,5 +1,6 @@
 import AppIntents
 import SwiftUI
+import UIKit
 
 @main
 struct VajraApp: App {
@@ -37,8 +38,11 @@ struct VajraApp: App {
         if !demo {
             PingScheduler.shared.onAnswered = { [weak model] in Task { @MainActor in model?.reload() } }
         }
-        settings.onChange = { [weak model] in
+        settings.onChange = { [weak model, weak settings] in
             Task { @MainActor in
+                if let settings {
+                    IdleTimer.apply(active: UIApplication.shared.applicationState == .active, keepAwake: settings.keepAwake)
+                }
                 model?.showCurrentCard()
                 if !demo { await PingScheduler.shared.reschedule() }
             }
@@ -65,6 +69,7 @@ struct VajraApp: App {
             case .background: model.wentBackground()
             default: break
             }
+            IdleTimer.apply(active: phase == .active, keepAwake: settings.keepAwake)
         }
     }
 }

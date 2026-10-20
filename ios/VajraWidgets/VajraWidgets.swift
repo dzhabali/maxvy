@@ -6,6 +6,7 @@ import WidgetKit
 struct VajraWidgetsBundle: WidgetBundle {
     var body: some Widget {
         CountWidget()
+        QuoteWidget()
         PlusOneControl()
     }
 }
@@ -117,6 +118,7 @@ struct SmallCountView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(entry.total)").font(.system(size: 40, weight: .light)).foregroundStyle(.white)
                     .minimumScaleFactor(0.5).lineLimit(1)
+                    .widgetAccentable()
                 Text("/ \(VajraConfig.goal)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
             }
             GeometryReader { g in
@@ -134,6 +136,120 @@ struct SmallCountView: View {
             .buttonStyle(.plain)
             .padding(.top, 2)
         }
+    }
+}
+
+// MARK: - Цитата (экран блокировки, маленький/StandBy, средний «Домой»)
+
+struct QuoteEntry: TimelineEntry {
+    let date: Date
+    let total: Int
+    /// nil — банка нет.
+    let lock: Bank.ViewCard?
+    let small: Bank.ViewCard?
+    let medium: Bank.ViewCard?
+}
+
+struct QuoteProvider: TimelineProvider {
+    static let demo = Bank.ViewCard(id: "demo", text: "Здесь будет короткая выдержка из банка", tag: nil, src: "Источник")
+
+    func placeholder(in context: Context) -> QuoteEntry {
+        QuoteEntry(date: Date(), total: 37, lock: Self.demo, small: Self.demo, medium: Self.demo)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (QuoteEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : Self.entries(now: Date(), count: 1)[0])
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<QuoteEntry>) -> Void) {
+        completion(Timeline(entries: Self.entries(now: Date(), count: 17), policy: .atEnd))
+    }
+
+    /// Сейчас + начало каждого следующего слота (4 ч); цитата — по (дата, слот), счёт — как у CountWidget.
+    static func entries(now: Date, count: Int) -> [QuoteEntry] {
+        let views = BankStore.shared.bank.views
+        let today = VajraDate.string(now)
+        let total = Slots.total(DayStore.shared.slots(today))
+        var out: [QuoteEntry] = []
+        var t = now
+        for _ in 0..<count {
+            let d = VajraDate.string(t), i = VajraDate.slotIndex(t)
+            func q(_ m: Int) -> Bank.ViewCard? { QuotePick.pick(views, maxLen: m, date: d, slot: i) }
+            out.append(QuoteEntry(date: t, total: d == today ? total : 0,
+                                  lock: q(QuotePick.lockMax), small: q(QuotePick.smallMax), medium: q(QuotePick.mediumMax)))
+            t = VajraDate.nextSlotStart(after: t)
+        }
+        return out
+    }
+}
+
+struct QuoteWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "com.maxdzhabali.vajra.quote", provider: QuoteProvider()) { e in
+            QuoteWidgetView(entry: e)
+        }
+        .configurationDisplayName("Ваджра — цитата")
+        .description("Выдержка, меняется каждые 15 минут. Средний — со счётом дня и кнопкой +1.")
+        .supportedFamilies([.accessoryRectangular, .systemSmall, .systemMedium])
+    }
+}
+
+struct QuoteWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    @Environment(\.showsWidgetContainerBackground) private var showsBg
+    @Environment(\.widgetRenderingMode) private var mode
+    let entry: QuoteEntry
+
+    /// Светлый фон приложения — только на домашнем экране в полном цвете; в StandBy/тонировке — системный.
+    private var light: Bool { showsBg && mode == .fullColor }
+    private var fg: Color { light ? Palette.text : .primary }
+    private var fg2: Color { light ? Palette.text2 : .secondary }
+
+    var body: some View {
+        switch family {
+        case .accessoryRectangular:
+            Text(entry.lock?.text ?? QuotePick.noBank)
+                .font(.system(size: 12)).italic()
+                .lineLimit(3).minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .containerBackground(for: .widget) { Color.clear }
+        case .systemMedium:
+            HStack(spacing: 12) {
+                quote(entry.medium, lines: 4, size: 14)
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text("\(entry.total)").font(.system(size: 40, weight: .ultraLight)).foregroundStyle(fg)
+                            .lineLimit(1).minimumScaleFactor(0.5).widgetAccentable()
+                        Text("/\(VajraConfig.goal)").font(.system(size: 13)).foregroundStyle(fg2)
+                    }
+                    Spacer(minLength: 0)
+                    Button(intent: IncrementRecollectionIntent()) {
+                        Text("+1").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 72).padding(.vertical, 8)
+                            .background(Palette.mint, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .widgetAccentable()
+                }
+                .frame(width: 96)
+            }
+            .containerBackground(for: .widget) { Palette.bg }
+        default:
+            quote(entry.small, lines: 5, size: 13)
+                .containerBackground(for: .widget) { Palette.bg }
+        }
+    }
+
+    private func quote(_ v: Bank.ViewCard?, lines: Int, size: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(v?.text ?? QuotePick.noBank)
+                .font(.system(size: size)).italic().foregroundStyle(fg)
+                .lineLimit(lines).minimumScaleFactor(0.8)
+            if let s = v?.src, !s.isEmpty {
+                Text("— " + s).font(.system(size: 10)).foregroundStyle(fg2).lineLimit(1).widgetAccentable()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 

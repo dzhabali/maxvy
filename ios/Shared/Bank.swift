@@ -143,3 +143,25 @@ extension VajraAPI {
         return b
     }
 }
+
+/// Цитата для виджетов: детерминированно по (дата, 15-мин слот) среди views подходящей длины —
+/// держится весь слот и не трогает «мешок» карточки приложения.
+enum QuotePick {
+    static let lockMax = 90      // экран блокировки
+    static let smallMax = 110    // «Цитата» маленький / StandBy
+    static let mediumMax = 160   // «Домой» средний
+    static let noBank = "Открой Ваджру, чтобы загрузить выдержки"
+
+    static func pick(_ views: [Bank.ViewCard], maxLen: Int, date: String, slot: Int) -> Bank.ViewCard? {
+        let ok = views.filter { !$0.text.isEmpty && $0.text.count <= maxLen }
+        guard !ok.isEmpty else { return nil }
+        return ok[Int(hash("\(date)#\(slot)") % UInt64(ok.count))]
+    }
+
+    /// FNV-1a 64 — стабилен между запусками (в отличие от Hasher).
+    static func hash(_ s: String) -> UInt64 {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in s.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        return h
+    }
+}

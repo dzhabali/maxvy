@@ -71,6 +71,32 @@ final class BankPingTests: XCTestCase {
         XCTAssertEqual(b.prompts[0].hint, "тест 4")
     }
 
+    func testQuotePickStablePerSlotAndFiltered() {
+        let vs = [Bank.ViewCard(id: "a", text: String(repeating: "т", count: 80), tag: nil),
+                  Bank.ViewCard(id: "b", text: String(repeating: "е", count: 100), tag: nil),
+                  Bank.ViewCard(id: "c", text: String(repeating: "с", count: 150), tag: nil),
+                  Bank.ViewCard(id: "d", text: "тест 4", tag: nil)]
+        let p1 = QuotePick.pick(vs, maxLen: QuotePick.lockMax, date: "2026-10-20", slot: 40)
+        XCTAssertEqual(p1, QuotePick.pick(vs, maxLen: QuotePick.lockMax, date: "2026-10-20", slot: 40))
+        for slot in 0..<96 {
+            XCTAssertTrue(["a", "d"].contains(QuotePick.pick(vs, maxLen: 90, date: "2026-10-20", slot: slot)!.id))
+            XCTAssertNotEqual(QuotePick.pick(vs, maxLen: 160, date: "2026-10-21", slot: slot)!.id, "")
+        }
+        let ids = Set((0..<96).map { QuotePick.pick(vs, maxLen: 160, date: "2026-10-20", slot: $0)!.id })
+        XCTAssertEqual(ids, ["a", "b", "c", "d"])
+        XCTAssertNil(QuotePick.pick([], maxLen: 90, date: "2026-10-20", slot: 1))
+        XCTAssertNil(QuotePick.pick([vs[2]], maxLen: 90, date: "2026-10-20", slot: 1))
+        XCTAssertEqual(QuotePick.hash("тест"), QuotePick.hash("тест"))
+    }
+
+    @MainActor
+    func testIdleTimerLogic() {
+        XCTAssertTrue(IdleTimer.disabled(active: true, keepAwake: true))
+        XCTAssertFalse(IdleTimer.disabled(active: false, keepAwake: true))
+        XCTAssertFalse(IdleTimer.disabled(active: true, keepAwake: false))
+        XCTAssertTrue(VajraSettings(defaults: defaults).keepAwake)   // по умолчанию вкл
+    }
+
     // MARK: расписание
 
     func testScheduleWindowGapLimit() {

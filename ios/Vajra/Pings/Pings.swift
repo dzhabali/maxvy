@@ -19,6 +19,8 @@ final class VajraSettings: ObservableObject {
     @Published var startMin: Int { didSet { defaults.set(startMin, forKey: "vajra.pings.start"); onChange?() } }
     @Published var endMin: Int { didSet { defaults.set(endMin, forKey: "vajra.pings.end"); onChange?() } }
     @Published var sound: Bool { didSet { defaults.set(sound, forKey: "vajra.pings.sound"); onChange?() } }
+    /// «Не гасить экран», пока приложение открыто.
+    @Published var keepAwake: Bool { didSet { defaults.set(keepAwake, forKey: "vajra.keepAwake"); onChange?() } }
     @Published var offerShown: Bool { didSet { defaults.set(offerShown, forKey: "vajra.pings.offerShown") } }
 
     init(defaults: UserDefaults) {
@@ -31,6 +33,17 @@ final class VajraSettings: ObservableObject {
         endMin = v("vajra.pings.end", 21 * 60)
         sound = v("vajra.pings.sound", true)
         offerShown = v("vajra.pings.offerShown", false)
+        keepAwake = v("vajra.keepAwake", true)
+    }
+}
+
+/// Экран не гаснет, пока Ваджра на переднем плане и включено «Не гасить экран».
+enum IdleTimer {
+    static func disabled(active: Bool, keepAwake: Bool) -> Bool { active && keepAwake }
+
+    @MainActor
+    static func apply(active: Bool, keepAwake: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = disabled(active: active, keepAwake: keepAwake)
     }
 }
 
@@ -200,6 +213,10 @@ struct SettingsSheet: View {
                 Section {
                     Toggle("Карточка воззрения", isOn: $settings.cardEnabled)
                 } footer: { Text("Фраза над главной кнопкой; меняется после каждого +1 и по тапу.") }
+
+                Section {
+                    Toggle("Не гасить экран", isOn: $settings.keepAwake)
+                } footer: { Text("Пока Ваджра открыта, айфон не блокируется. Батарея расходуется быстрее.") }
 
                 Section {
                     Toggle("Пинги-вопросы", isOn: Binding(get: { settings.pingsEnabled }, set: { on in
