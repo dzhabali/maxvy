@@ -281,6 +281,32 @@ final class IntentStoreTests: XCTestCase {
         XCTAssertFalse(srv.slots(D)[7].forgot)
     }
 
+    /// «+5 ясно» задним числом: одна операция add {count 5, qc 5}; ↶ — одна обратная add.
+    func testPlus5IsOneAddAndUndoes() async throws {
+        let srv = FakeServer()
+        _ = try await srv.postOps(D, [.add(10, count: 2, t: 50)])
+        try await VajraSync.pullDay(store: store, api: srv, date: D)
+        let r = store.add(D, i: 10, count: 5, q: .qc, qAmount: 5, nowMs: 1_000)
+        XCTAssertEqual(store.record(D)?.ops.count, 1)
+        let op = try XCTUnwrap(store.record(D)?.ops.first)
+        XCTAssertEqual(op.kind, .add)
+        XCTAssertEqual(op.count, 5)
+        XCTAssertEqual(op.qc, 5)
+        XCTAssertEqual(r.slots[10].count, 7)
+        XCTAssertEqual(r.slots[10].qc, 5)
+        XCTAssertEqual(r.change, .add(i: 10, count: 5, qc: 5, qm: 0, qa: 0))
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.slots(D)[10].count, 7)
+        XCTAssertEqual(srv.slots(D)[10].qc, 5)
+        let u = store.revert(D, [r.change], nowMs: 2_000)
+        XCTAssertEqual(store.record(D)?.ops.count, 1)
+        XCTAssertEqual(u.slots[10].count, 2)
+        XCTAssertEqual(u.slots[10].qc, 0)
+        try await VajraSync.pushDay(store: store, api: srv, date: D)
+        XCTAssertEqual(srv.slots(D)[10].count, 2)
+        XCTAssertEqual(srv.slots(D)[10].qc, 0)
+    }
+
     func testResetDayUsesTAboveDayMax() async throws {
         let srv = FakeServer()
         _ = try await srv.postOps(D, [.add(1, count: 2, qc: 1, t: 9_999_999_999_999)])

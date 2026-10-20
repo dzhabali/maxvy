@@ -44,7 +44,7 @@ struct TrackerView: View {
                 }
 
                 if isToday {
-                    NeighborSlot(index: ci - 1).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 6)
+                    NeighborSlot(index: ci - 1, plus5: true).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 6)
                     MainHoldButton().padding(.horizontal, 16).padding(.bottom, 10)
                     HStack(spacing: 8) {
                         BottomToggle(title: "Сон", on: model.slots[ci].sleep, style: .green) { model.toggleSleepCurrent() }
@@ -116,10 +116,14 @@ struct DateNav: View {
 }
 
 /// Главная кнопка: таймер 3:00 слева, счёт текущего слота справа; +1 — только удержанием 3 с.
+/// Заливку удержания ведёт анимация SwiftUI (holdProgress 0→1), TimelineView — только таймер и отсчёт.
 struct MainHoldButton: View {
     @EnvironmentObject private var model: AppModel
     @State private var holdStart: Date?
     @State private var completed = false
+    @State private var holdProgress: CGFloat = 0
+    @State private var flash = false
+    @State private var tickTask: Task<Void, Never>?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.2)) { ctx in
@@ -127,7 +131,6 @@ struct MainHoldButton: View {
             let secs = model.timerSeconds(at: now)
             let over = secs < 0
             let ratio: Double = over ? min(Double(-secs) / AppModel.timerDuration, 1) : Double(secs) / AppModel.timerDuration
-            let fill: Double = holdStart.map { min(1, now.timeIntervalSince($0) / AppModel.holdSeconds) } ?? 0
             let ci = model.currentIndex
             HStack(spacing: 12) {
                 ZStack {
@@ -153,36 +156,71 @@ struct MainHoldButton: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.horizontal, 20).padding(.vertical, 16)
-            .background(alignment: .leading) {
-                GeometryReader { g in
-                    Rectangle().fill(Color(hex: 0xfda4cf, opacity: 0.38)).frame(width: g.size.width * fill)
-                }
-            }
-            .background(holdStart != nil ? Palette.crimson2 : (over ? Palette.crimson : Palette.mint))
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .contentShape(RoundedRectangle(cornerRadius: 24))
         }
+        // заливка — вне TimelineView (под текстом, над фоном): её анимацию тики не перебивают
+        .background {
+            ZStack {
+                Rectangle().fill(Color(hex: 0xfda4cf, opacity: 0.38))
+                    .scaleEffect(x: holdProgress, y: 1, anchor: .leading)
+                Rectangle().fill(Color.white.opacity(flash ? 0.3 : 0))
+            }
+        }
+        .background {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                let over = model.timerSeconds(at: ctx.date) < 0
+                Rectangle().fill(holdStart != nil ? Palette.crimson2 : (over ? Palette.crimson : Palette.mint))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .contentShape(RoundedRectangle(cornerRadius: 24))
         .onLongPressGesture(minimumDuration: AppModel.holdSeconds, maximumDistance: 40) {
             completed = true
             holdStart = nil
+            stopTicks()
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             model.holdCompleted()
+            flash = true
+            withAnimation(.easeOut(duration: 0.35)) { flash = false }
+            withAnimation(.easeOut(duration: 0.25)) { holdProgress = 0 }
         } onPressingChanged: { pressing in
             if pressing {
                 completed = false
                 holdStart = Date()
+                holdProgress = 0
+                withAnimation(.linear(duration: AppModel.holdSeconds)) { holdProgress = 1 }
+                startTicks()
             } else {
+                stopTicks()
                 if let s = holdStart, !completed {
                     let held = Date().timeIntervalSince(s)
                     if held > 0.15 && held < AppModel.holdSeconds - 0.05 { model.showToast("Держи 3 секунды") }
+                    withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
                 }
                 holdStart = nil
             }
         }
+        .onDisappear { stopTicks() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Вспомнил +1, удерживай 3 секунды")
         .accessibilityAction(named: "Плюс один") { model.holdCompleted() }
     }
+
+    /// Мягкий отклик на каждой целой секунде удержания (1 и 2; на 3-й — .medium засчёта).
+    private func startTicks() {
+        tickTask?.cancel()
+        tickTask = Task { @MainActor in
+            let gen = UIImpactFeedbackGenerator(style: .soft)
+            gen.prepare()
+            for _ in 1..<Int(AppModel.holdSeconds) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                gen.impactOccurred()
+                gen.prepare()
+            }
+        }
+    }
+
+    private func stopTicks() { tickTask?.cancel(); tickTask = nil }
 
     private func hint(_ now: Date) -> String {
         guard let s = holdStart else { return "держи 3 сек — вспомни" }
@@ -210,6 +248,25 @@ struct GemButton: View {
     }
 }
 
+/// «+5 ясно» задним числом: count += 5 и qc += 5.
+struct Plus5Button: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                GemShapeView(size: 13)
+                Text("+5").font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(Palette.gemText)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(Palette.gemBg, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.gemBorder))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("плюс пять ясно")
+    }
+}
+
 struct SmallToggle: View {
     let title: String
     let on: Bool
@@ -230,6 +287,8 @@ struct SmallToggle: View {
 struct NeighborSlot: View {
     @EnvironmentObject private var model: AppModel
     let index: Int
+    /// «+5» — только в строке прошлого слота (как в вебе).
+    var plus5 = false
 
     var body: some View {
         if (0..<Slots.count).contains(index) {
@@ -238,6 +297,7 @@ struct NeighborSlot: View {
                 Text(Slots.time(index)).font(.system(size: 13)).foregroundStyle(Palette.text2).frame(width: 44, alignment: .leading)
                 Text(s.count > 0 ? "\(s.count)" : "—").font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text2)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                if plus5 { Plus5Button { model.act(.plus5, index) } }
                 GemButton(plus: true) { model.act(.plus, index) }
                 GemButton(plus: false) { model.act(.minus, index) }
             }
@@ -278,6 +338,7 @@ struct HistoryList: View {
                     Text(Slots.time(i)).font(.system(size: 13)).foregroundStyle(Palette.text2).frame(width: 44, alignment: .leading)
                     Text("\(s.count)").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text).frame(minWidth: 18, alignment: .leading)
                     Spacer(minLength: 0)
+                    Plus5Button { model.act(.plus5, i) }
                     GemButton(plus: true) { model.act(.plus, i) }
                     GemButton(plus: false) { model.act(.minus, i) }
                     SmallToggle(title: "Сон", on: s.sleep, amber: false) { model.act(.sleep, i) }

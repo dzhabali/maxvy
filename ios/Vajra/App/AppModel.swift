@@ -284,7 +284,7 @@ final class AppModel: ObservableObject {
         setFields([(i, SetFields(forgot: !slots[i].forgot))])
     }
 
-    enum SlotAct { case plus, minus, sleep, forgot }
+    enum SlotAct { case plus, plus5, minus, sleep, forgot }
 
     func act(_ a: SlotAct, _ i: Int) {
         guard (0..<Slots.count).contains(i) else { return }
@@ -293,6 +293,12 @@ final class AppModel: ObservableObject {
             if a == .minus && slots[i].count <= 0 { return }
             let d = selectedDate
             let r = store.add(d, i: i, count: a == .plus ? 1 : -1, nowMs: nowMs)
+            afterEdit(d, r.slots, changes: [r.change])
+        case .plus5:
+            // «+5 ясно» задним числом (веб v2.8.2): одна операция add {count: 5, qc: 5}, одна отмена ↶
+            let d = selectedDate
+            let r = store.add(d, i: i, count: 5, q: .qc, qAmount: 5, nowMs: nowMs)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             afterEdit(d, r.slots, changes: [r.change])
         case .sleep: setFields([(i, SetFields(sleep: !slots[i].sleep))])
         case .forgot: setFields([(i, SetFields(forgot: !slots[i].forgot))])
