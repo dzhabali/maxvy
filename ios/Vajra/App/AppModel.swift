@@ -24,7 +24,7 @@ final class AppModel: ObservableObject {
 
     static let holdSeconds: Double = 3        // HOLD_MS
     static let timerDuration: Double = 3 * 60 // TIMER_DURATION
-    static let timerMaxOvertime: Double = 12 * 3600
+    static let timerMaxOvertime: Double = 14 * 3600   // 14 ч — дальше пропуск не считаем, замираем на +840 мин
     static let undoMax = 20
 
     @Published var tab: Tab = .tracker
@@ -468,10 +468,16 @@ final class AppModel: ObservableObject {
         return max(left, -Int(Self.timerMaxOvertime))
     }
 
-    nonisolated static func formatTimer(_ secs: Int) -> String {
+    /// Число и единица: до часа — «2:59» / «+12:34» (мин:сек), от часа — «+100» «мин».
+    nonisolated static func timerLabel(_ secs: Int) -> (value: String, unit: String?) {
         let a = abs(secs), sign = secs < 0 ? "+" : ""
-        let h = a / 3600, m = (a % 3600) / 60, s = a % 60
-        return h > 0 ? String(format: "%@%d:%02d", sign, h, m) : String(format: "%@%d:%02d", sign, m, s)
+        if a >= 3600 { return ("\(sign)\(a / 60)", "мин") }
+        return (String(format: "%@%d:%02d", sign, a / 60, a % 60), nil)
+    }
+
+    nonisolated static func formatTimer(_ secs: Int) -> String {
+        let l = timerLabel(secs)
+        return l.unit.map { "\(l.value) \($0)" } ?? l.value
     }
 
     // MARK: ачивки

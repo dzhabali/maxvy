@@ -64,7 +64,9 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(AppModel.formatTimer(180), "3:00")
         XCTAssertEqual(AppModel.formatTimer(5), "0:05")
         XCTAssertEqual(AppModel.formatTimer(-75), "+1:15")
-        XCTAssertEqual(AppModel.formatTimer(-3725), "+1:02")
+        XCTAssertEqual(AppModel.formatTimer(-3599), "+59:59")
+        XCTAssertEqual(AppModel.formatTimer(-6000), "+100 мин")
+        XCTAssertEqual(AppModel.formatTimer(-Int(AppModel.timerMaxOvertime)), "+840 мин")
     }
 }
 

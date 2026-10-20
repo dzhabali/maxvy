@@ -144,7 +144,10 @@ struct MainHoldButton: View {
                         .rotationEffect(.degrees(-90))
                     VStack(spacing: 3) {
                         GemShapeView(size: 22)
-                        Text(AppModel.formatTimer(secs)).font(.system(size: 22, weight: .bold).monospacedDigit()).foregroundStyle(.white)
+                        let tl = AppModel.timerLabel(secs)
+                        (Text(tl.value).font(.system(size: 22, weight: .bold).monospacedDigit())
+                            + Text(tl.unit.map { " " + $0 } ?? "").font(.system(size: 12, weight: .semibold)))
+                            .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
                         Text(Slots.time(ci)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
                     }
                 }
