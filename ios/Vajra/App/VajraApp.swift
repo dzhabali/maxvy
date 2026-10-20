@@ -62,6 +62,8 @@ struct VajraApp: App {
                 // демо-проверка вёрстки на ширине iPhone SE (375 pt) на любом симуляторе
                 .frame(maxWidth: ProcessInfo.processInfo.arguments.contains("-narrow") ? 375 : .infinity)
                 .task { await auth.check() }
+                // onChange(scenePhase) не срабатывает на начальное .active при холодном старте
+                .onAppear { if scenePhase == .active { model.becameActive() } }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

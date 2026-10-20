@@ -97,6 +97,52 @@ final class BankPingTests: XCTestCase {
         XCTAssertTrue(VajraSettings(defaults: defaults).keepAwake)   // по умолчанию вкл
     }
 
+    // MARK: таймер 3:00 в группе
+
+    func testIntentAndPingResetTimer() async {
+        let store = DayStore(dir: dir.appendingPathComponent("days"))
+        let t1 = Date(timeIntervalSince1970: 1_800_000_000)
+        _ = await RecollectionAction.increment(store: store, now: t1, api: nil, timerDefaults: defaults)
+        XCTAssertEqual(VajraTimer.start(defaults: defaults), t1.timeIntervalSince1970)
+        let t2 = t1.addingTimeInterval(60)
+        PingAnswer.apply(store: store, now: t2, timerDefaults: defaults)
+        XCTAssertEqual(VajraTimer.start(defaults: defaults), t2.timeIntervalSince1970)
+    }
+
+    @MainActor
+    func testPlus5DoesNotResetTimerButHoldDoes() {
+        let settings = VajraSettings(defaults: defaults)
+        let model = AppModel(store: DayStore(dir: dir.appendingPathComponent("days")), demo: true,
+                             bank: BankStore(dir: dir, defaults: defaults), settings: settings)
+        XCTAssertEqual(VajraTimer.start(defaults: defaults), 0)
+        model.act(.plus5, 3)
+        XCTAssertEqual(VajraTimer.start(defaults: defaults), 0)
+        model.holdCompleted()
+        XCTAssertGreaterThan(VajraTimer.start(defaults: defaults), 0)
+        XCTAssertNotNil(model.timerStart)
+    }
+
+    @MainActor
+    func testSlotChangesAtBoundary() {
+        let cal = Calendar.current
+        let noon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+        let before = noon.addingTimeInterval(-1)                       // 11:59:59
+        let store = DayStore(dir: dir.appendingPathComponent("days"))
+        let d = VajraDate.string(noon)
+        store.add(d, i: VajraDate.slotIndex(before), count: 11, nowMs: 1_000)
+        let model = AppModel(store: store, demo: true, bank: BankStore(dir: dir, defaults: defaults),
+                             settings: VajraSettings(defaults: defaults))
+        model.slotTick(before)
+        let i1 = model.currentIndex(at: before)
+        XCTAssertEqual(Slots.time(i1), "11:45")
+        XCTAssertEqual(model.slots[i1].count, 11)
+        model.slotTick(noon)
+        let i2 = model.currentIndex(at: noon)
+        XCTAssertEqual(Slots.time(i2), "12:00")
+        XCTAssertEqual(i2, i1 + 1)
+        XCTAssertEqual(model.slots[i2].count, 0)
+    }
+
     // MARK: расписание
 
     func testScheduleWindowGapLimit() {

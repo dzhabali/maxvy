@@ -95,7 +95,9 @@ enum PingAnswer {
     static let plusAction = "plus1"
 
     @discardableResult
-    static func apply(store: DayStore, now: Date = Date(), calendar: Calendar = .current) -> (date: String, change: SlotChange) {
+    static func apply(store: DayStore, now: Date = Date(), calendar: Calendar = .current,
+                      timerDefaults: UserDefaults? = VajraTimer.defaults) -> (date: String, change: SlotChange) {
+        if let timerDefaults { VajraTimer.mark(now, defaults: timerDefaults) }
         let d = VajraDate.string(now, calendar: calendar)
         let i = VajraDate.slotIndex(now, calendar: calendar)
         let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))

@@ -135,7 +135,7 @@ struct MainHoldButton: View {
             let secs = model.timerSeconds(at: now)
             let over = secs < 0
             let ratio: Double = over ? min(Double(-secs) / AppModel.timerDuration, 1) : Double(secs) / AppModel.timerDuration
-            let ci = model.currentIndex
+            let ci = model.currentIndex(at: now)   // от часов TimelineView: слот меняется ровно на границе
             HStack(spacing: 12) {
                 ZStack {
                     Circle().stroke(Color.white.opacity(0.15), lineWidth: 9)

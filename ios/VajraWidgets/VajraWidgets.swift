@@ -48,7 +48,7 @@ struct CountProvider: TimelineProvider {
 
 struct CountWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "com.maxdzhabali.vajra.count", provider: CountProvider()) { e in
+        StaticConfiguration(kind: VajraConfig.countKind, provider: CountProvider()) { e in
             CountWidgetView(entry: e)
         }
         .configurationDisplayName("Ваджра — счёт дня")
@@ -180,7 +180,7 @@ struct QuoteProvider: TimelineProvider {
 
 struct QuoteWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "com.maxdzhabali.vajra.quote", provider: QuoteProvider()) { e in
+        StaticConfiguration(kind: VajraConfig.quoteKind, provider: QuoteProvider()) { e in
             QuoteWidgetView(entry: e)
         }
         .configurationDisplayName("Ваджра — цитата")

@@ -4,6 +4,9 @@ import os
 /// Общие константы приложения и расширения виджетов.
 enum VajraConfig {
     static let appGroup = "group.com.maxdzhabali.vajra"
+    static let countKind = "com.maxdzhabali.vajra.count"
+    static let quoteKind = "com.maxdzhabali.vajra.quote"
+    static let widgetKinds = [countKind, quoteKind]
     static let goal = 100
     static let slotsPerDay = 96
 

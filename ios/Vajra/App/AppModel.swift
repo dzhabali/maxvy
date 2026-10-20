@@ -62,6 +62,7 @@ final class AppModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var clockTimer: Timer?
+    private var slotTimer: Timer?
     private var fileTimer: Timer?
     private var lastMtime: Date?
     private var lastKnownToday: String
@@ -129,7 +130,9 @@ final class AppModel: ObservableObject {
 
     var today: String { VajraDate.string(Date()) }
     var isToday: Bool { selectedDate == today }
-    var currentIndex: Int { isToday ? VajraDate.slotIndex(Date()) : 47 }
+    var currentIndex: Int { currentIndex(at: Date()) }
+    /// Текущий слот для момента now (сегодня), для прошлого дня — 47 (как в вебе).
+    func currentIndex(at now: Date) -> Int { selectedDate == VajraDate.string(now) ? VajraDate.slotIndex(now) : 47 }
     var total: Int { Slots.total(slots) }
     var quality: VajraStats.Quality { VajraStats.quality(slots) }
     var sleepMinutes: Int { VajraStats.sleepMinutes(slots) }
@@ -154,6 +157,7 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 let before = self.total
                 self.reload()
+                self.restoreTimer()
                 DiagLog.log("darwin notify → reload", "\(before) → \(self.total)")
             }
         }
@@ -163,9 +167,12 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.checkFile() }
         }
         clockTimer?.invalidate()
-        clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        let ct = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.rolloverCheck() }
         }
+        RunLoop.main.add(ct, forMode: .common)   // и во время скролла/жестов
+        clockTimer = ct
+        scheduleSlotTick()
         pollTask?.cancel()
         guard !demo else { return }
         pollTask = Task { [weak self] in
@@ -181,6 +188,7 @@ final class AppModel: ObservableObject {
         let m = store.mtime(selectedDate)
         guard m != lastMtime else { return }
         lastMtime = m
+        restoreTimer()
         let before = total
         if reload() { DiagLog.log("file changed → reload", "\(before) → \(total)") }
     }
@@ -188,6 +196,8 @@ final class AppModel: ObservableObject {
     func wentBackground() {
         fileTimer?.invalidate()
         fileTimer = nil
+        slotTimer?.invalidate()
+        slotTimer = nil
         clockTimer?.invalidate()
         clockTimer = nil
         pollTask?.cancel()
@@ -250,15 +260,34 @@ final class AppModel: ObservableObject {
     }
 
     /// Полночь: катимся только вперёд и только если смотрели «сегодня» (как в вебе).
-    func rolloverCheck() {
-        clock = Date()
-        let t = today
+    func rolloverCheck(_ now: Date = Date()) {
+        clock = now
+        let t = VajraDate.string(now)
         if t != lastKnownToday {
             if t > lastKnownToday && selectedDate == lastKnownToday {
                 setDate(t)
             }
             lastKnownToday = t
         }
+    }
+
+    /// Ровно на границе 15-мин слота: пересчитать текущий слот (и перекат через полночь), дальше — следующая граница.
+    func slotTick(_ now: Date = Date()) {
+        rolloverCheck(now)
+        DiagLog.log("slot tick", "slot \(Slots.time(currentIndex(at: now))) count \(slots[currentIndex(at: now)].count)")
+    }
+
+    private func scheduleSlotTick() {
+        slotTimer?.invalidate()
+        let at = VajraDate.nextSlotStart(after: Date()).addingTimeInterval(0.05)
+        let t = Timer(fire: at, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.slotTick()
+                self?.scheduleSlotTick()
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        slotTimer = t
     }
 
     // MARK: даты
@@ -315,7 +344,7 @@ final class AppModel: ObservableObject {
         afterEdit(d, r.slots, changes: [r.change])
         DiagLog.log("holdCompleted", "slot \(Slots.time(i)) total \(total)")
         advanceCard()
-        startTimer()
+        startTimer(now)
     }
 
     private func setFields(_ edits: [(i: Int, fields: SetFields)]) {
@@ -415,20 +444,21 @@ final class AppModel: ObservableObject {
 
     // MARK: таймер 3:00
 
-    private func startTimer() {
-        let now = Date()
+    private func startTimer(_ now: Date = Date()) {
         timerStart = now
-        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "vajra.timerStart")
+        VajraTimer.mark(now, defaults: settings.defaults)
     }
 
-    private func restoreTimer() {
-        let ts = UserDefaults.standard.double(forKey: "vajra.timerStart")
+    /// Из группы: +1 из интента/контрола/пинга тоже сбрасывает таймер.
+    func restoreTimer() {
+        let ts = VajraTimer.start(defaults: settings.defaults)
         guard ts > 0, Date().timeIntervalSince1970 - ts <= Self.timerDuration + Self.timerMaxOvertime else {
-            UserDefaults.standard.removeObject(forKey: "vajra.timerStart")
-            timerStart = nil
+            if ts > 0 { VajraTimer.clear(defaults: settings.defaults) }
+            if timerStart != nil { timerStart = nil }
             return
         }
-        timerStart = Date(timeIntervalSince1970: ts)
+        let d = Date(timeIntervalSince1970: ts)
+        if timerStart != d { timerStart = d }
     }
 
     /// Оставшиеся секунды (минус — overtime), nil — таймер не запущен (кружок 3:00).
