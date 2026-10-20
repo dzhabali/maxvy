@@ -44,7 +44,11 @@ struct TrackerView: View {
                 }
 
                 if isToday {
+                    PingOffer().padding(.horizontal, 16).padding(.top, 10)
                     NeighborSlot(index: ci - 1, plus5: true).padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 6)
+                    if let t = model.cardText {
+                        ViewCardView(text: t) { model.advanceCard() }.padding(.horizontal, 16).padding(.bottom, 8)
+                    }
                     MainHoldButton().padding(.horizontal, 16).padding(.bottom, 10)
                     HStack(spacing: 8) {
                         BottomToggle(title: "Сон", on: model.slots[ci].sleep, style: .green) { model.toggleSleepCurrent() }
@@ -226,6 +230,29 @@ struct MainHoldButton: View {
         guard let s = holdStart else { return "держи 3 сек — вспомни" }
         let left = Int((AppModel.holdSeconds - now.timeIntervalSince(s)).rounded(.up))
         return left > 0 ? "вспоминай… \(left)" : "вспоминай…"
+    }
+}
+
+/// Карточка воззрения: одна фраза, спокойно, мелко; тап — следующая.
+struct ViewCardView: View {
+    let text: String
+    let next: () -> Void
+    var body: some View {
+        Button(action: next) {
+            Text(text)
+                .font(.system(size: 13)).italic()
+                .foregroundStyle(Palette.text2)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.border))
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: 0.3), value: text)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Следующая фраза")
     }
 }
 

@@ -39,6 +39,7 @@ struct TopBar: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var auth: AuthManager
     @State private var confirmLogout = false
+    @State private var showSettings = false
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -71,6 +72,11 @@ struct TopBar: View {
                     .background(Palette.amberBg, in: Capsule())
                     .overlay(Capsule().stroke(Palette.amberBorder))
             }
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape").font(.system(size: 15)).foregroundStyle(Palette.text2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Настройки")
             Text(RuDate.dayMonth(model.selectedDate)).font(.system(size: 12)).foregroundStyle(Palette.text2)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(Palette.chip, in: Capsule())
@@ -79,6 +85,8 @@ struct TopBar: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(Palette.surface.ignoresSafeArea(edges: [.top, .horizontal]))
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1).ignoresSafeArea(edges: .horizontal) }
+        .sheet(isPresented: $showSettings) { SettingsSheet() }
+        .onAppear { if ProcessInfo.processInfo.arguments.contains("-settings") { showSettings = true } }
         .confirmationDialog("Выйти из Life? Локальные данные останутся на телефоне.", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Выйти", role: .destructive) { auth.signOut() }
         }

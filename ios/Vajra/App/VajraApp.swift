@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct VajraApp: App {
+    @UIApplicationDelegateAdaptor(VajraAppDelegate.self) private var appDelegate
+    @StateObject private var settings: VajraSettings
     @StateObject private var auth: AuthManager
     @StateObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -10,15 +12,38 @@ struct VajraApp: App {
     init() {
         let demo = ProcessInfo.processInfo.arguments.contains("-demo")
         let store: DayStore
+        let bank: BankStore
+        let settings: VajraSettings
         if demo {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vajra-demo-bank", isDirectory: true)
+            try? FileManager.default.removeItem(at: dir)
+            let defs = UserDefaults(suiteName: "vajra.demo") ?? .standard
+            defs.removePersistentDomain(forName: "vajra.demo")
+            bank = BankStore(dir: dir, defaults: defs)
+            bank.save(DemoData.bank)
+            settings = VajraSettings(defaults: defs)
+            settings.offerShown = ProcessInfo.processInfo.arguments.contains("-noOffer")
+
             store = DayStore(dir: FileManager.default.temporaryDirectory.appendingPathComponent("vajra-demo", isDirectory: true))
             DemoData.fill(store)
         } else {
             store = .shared
+            bank = .shared
+            settings = .shared
         }
         let auth = AuthManager(demo: demo)
-        let model = AppModel(store: store, demo: demo)
+        let model = AppModel(store: store, demo: demo, bank: bank, settings: settings)
         model.auth = auth
+        if !demo {
+            PingScheduler.shared.onAnswered = { [weak model] in Task { @MainActor in model?.reload() } }
+        }
+        settings.onChange = { [weak model] in
+            Task { @MainActor in
+                model?.showCurrentCard()
+                if !demo { await PingScheduler.shared.reschedule() }
+            }
+        }
+        _settings = StateObject(wrappedValue: settings)
         _auth = StateObject(wrappedValue: auth)
         _model = StateObject(wrappedValue: model)
     }
@@ -28,6 +53,7 @@ struct VajraApp: App {
             RootView()
                 .environmentObject(auth)
                 .environmentObject(model)
+                .environmentObject(settings)
                 .preferredColorScheme(.light)
                 .task { await auth.check() }
         }
@@ -61,6 +87,12 @@ struct VajraShortcuts: AppShortcutsProvider {
 
 /// Локальные демо-данные для `-demo` (без сети): этот и прошлый месяц, сегодня — до текущего слота.
 enum DemoData {
+    /// Нейтральный банк для демо и скриншотов (настоящие тексты — только на сервере).
+    static let bank = Bank(version: 1,
+                           views: [Bank.ViewCard(id: "d1", text: "Здесь будет фраза-воззрение из банка на сервере", tag: nil),
+                                   Bank.ViewCard(id: "d2", text: "Вторая демонстрационная фраза", tag: nil)],
+                           prompts: [Bank.Prompt(id: "p1", q: "Демо-вопрос", hint: "подсказка", tag: nil)])
+
     static func fill(_ store: DayStore, now: Date = Date()) {
         store.removeAll()
         let today = VajraDate.string(now)
@@ -88,7 +120,7 @@ enum DemoData {
         }
     }
 
-    struct SplitMix {
+    struct SplitMix: RandomNumberGenerator {
         var state: UInt64
         init(seed: UInt64) { state = seed }
         mutating func next() -> UInt64 {

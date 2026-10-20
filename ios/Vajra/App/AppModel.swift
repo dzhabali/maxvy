@@ -50,6 +50,10 @@ final class AppModel: ObservableObject {
 
     let store: DayStore
     let demo: Bool
+    let bank: BankStore
+    let settings: VajraSettings
+    /// Фраза карточки воззрения (nil — карточка скрыта: выключена или банк пуст).
+    @Published private(set) var cardText: String?
     private let api: VajraAPI
     private let shortAPI = VajraAPI(session: VajraAPI.makeSession(timeout: 6))
     weak var auth: AuthManager?
@@ -64,8 +68,11 @@ final class AppModel: ObservableObject {
     private var lastKnownToday: String
     private var monthDirty: Set<String> = []
 
-    init(store: DayStore = .shared, api: VajraAPI = .shared, demo: Bool = false) {
+    init(store: DayStore = .shared, api: VajraAPI = .shared, demo: Bool = false,
+         bank: BankStore = .shared, settings: VajraSettings? = nil) {
         self.store = store
+        self.bank = bank
+        self.settings = settings ?? .shared
         self.api = api
         self.demo = demo
         let today = VajraDate.string(Date())
@@ -78,6 +85,41 @@ final class AppModel: ObservableObject {
         if let tab = UserDefaults.standard.string(forKey: "tab").flatMap(Tab.init(rawValue:)) { self.tab = tab }
         restoreTimer()
         if !demo { store.prune(today: today) }
+        showCurrentCard()
+    }
+
+    // MARK: карточка воззрения
+
+    private static let cardKey = "vajra.card.current"
+
+    /// Следующая фраза из мешка (после засчитанного +1, при открытии, по тапу).
+    func advanceCard() {
+        let vs = bank.bank.views
+        guard settings.cardEnabled, let id = bank.draw("views", ids: vs.map(\.id)) else { showCurrentCard(); return }
+        bank.defaults.set(id, forKey: Self.cardKey)
+        cardText = vs.first { $0.id == id }?.text
+    }
+
+    /// Показать текущую (после смены настроек / загрузки банка), не двигая мешок.
+    func showCurrentCard() {
+        guard settings.cardEnabled else { cardText = nil; return }
+        let vs = bank.bank.views
+        if let id = bank.defaults.string(forKey: Self.cardKey), let v = vs.first(where: { $0.id == id }) {
+            cardText = v.text
+        } else if vs.isEmpty {
+            cardText = nil
+        } else {
+            advanceCard()
+        }
+    }
+
+    /// Банк: при входе (force) и не чаще раза в 12 ч; изменился — карточка и пинги заново.
+    func refreshBank(force: Bool = false) async {
+        guard !demo else { return }
+        if await bank.refresh(api: api, force: force) {
+            showCurrentCard()
+            await PingScheduler.shared.reschedule()
+        }
     }
 
     // MARK: производные
@@ -92,6 +134,13 @@ final class AppModel: ObservableObject {
     // MARK: жизненный цикл
 
     func becameActive() {
+        advanceCard()
+        if !demo {
+            Task {
+                await refreshBank()
+                await PingScheduler.shared.reschedule()
+            }
+        }
         rolloverCheck()
         ensureToday()
         restoreTimer()
@@ -119,6 +168,7 @@ final class AppModel: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         guard !demo else { return }
+        PingScheduler.shared.submitRefresh()
         syncTask?.cancel()
         let store = store, api = api
         // дописать немедленно; фоновое время, чтобы система не усыпила посреди запроса
@@ -238,6 +288,7 @@ final class AppModel: ObservableObject {
         let d = VajraDate.string(now), i = VajraDate.slotIndex(now)
         let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))
         afterEdit(d, r.slots, changes: [r.change])
+        advanceCard()
         startTimer()
         qPending = QPending(date: d, index: i)
         qTask?.cancel()

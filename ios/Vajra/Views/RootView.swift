@@ -18,7 +18,7 @@ struct RootView: View {
             }
         }
         .onChange(of: auth.state) { _, st in
-            if st == .signedIn { Task { await model.refresh() } }   // вход подтверждён — синк сразу
+            if st == .signedIn { Task { await model.refresh(); await model.refreshBank(force: true) } }   // вход подтверждён — синк сразу
         }
     }
 }
