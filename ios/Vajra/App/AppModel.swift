@@ -61,6 +61,9 @@ final class AppModel: ObservableObject {
     private var syncTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    /// Смена цитаты после +1 удержанием — с задержкой, чтобы успеть дочитать.
+    private var cardAdvanceTask: Task<Void, Never>?
+    var cardHoldDelay: TimeInterval = 10
     private var clockTimer: Timer?
     private var slotTimer: Timer?
     private var fileTimer: Timer?
@@ -94,12 +97,24 @@ final class AppModel: ObservableObject {
 
     /// Следующая фраза из мешка (после засчитанного +1, при открытии, по тапу).
     func advanceCard() {
+        cardAdvanceTask?.cancel(); cardAdvanceTask = nil
         let vs = bank.bank.views
         guard settings.cardEnabled, let id = bank.draw("views", ids: vs.map(\.id)) else { showCurrentCard(); return }
         bank.defaults.set(id, forKey: Self.cardKey)
         let v = vs.first { $0.id == id }
         cardText = v?.text
         cardSrc = v?.src
+    }
+
+    /// После +1 удержанием: старая цитата остаётся ещё 10 с (Макс читает её во время удержания).
+    /// Новое +1 за эти 10 с отсчёт перезапускает; тап по карточке и вход в приложение меняют сразу.
+    func advanceCardLater() {
+        cardAdvanceTask?.cancel()
+        cardAdvanceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((self?.cardHoldDelay ?? 0) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.advanceCard()
+        }
     }
 
     /// Показать текущую (после смены настроек / загрузки банка), не двигая мешок.
@@ -335,7 +350,7 @@ final class AppModel: ObservableObject {
 
     private var nowMs: Int64 { VajraDate.ms(Date()) }
 
-    /// Удержание 3 с засчитано: +1 (без оценки) в текущий слот сегодня → таймер с нуля → следующая карточка.
+    /// Удержание 3 с засчитано: +1 (без оценки) в текущий слот сегодня → таймер с нуля → следующая карточка через 10 с.
     func holdCompleted() {
         ensureToday()
         let now = Date()
@@ -343,7 +358,7 @@ final class AppModel: ObservableObject {
         let r = store.add(d, i: i, count: 1, nowMs: VajraDate.ms(now))
         afterEdit(d, r.slots, changes: [r.change])
         DiagLog.log("holdCompleted", "slot \(Slots.time(i)) total \(total)")
-        advanceCard()
+        advanceCardLater()
         startTimer(now)
     }
 

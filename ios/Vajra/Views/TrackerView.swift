@@ -128,6 +128,8 @@ struct MainHoldButton: View {
     @State private var holdProgress: CGFloat = 0
     @State private var flash = false
     @State private var tickTask: Task<Void, Never>?
+    /// Засчёт — отдельный узнаваемый отклик (двойной «успех»), не как тики по секундам.
+    @State private var successGen = UINotificationFeedbackGenerator()
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.2)) { ctx in
@@ -184,7 +186,7 @@ struct MainHoldButton: View {
             completed = true
             holdStart = nil
             stopTicks()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            successGen.notificationOccurred(.success)
             model.holdCompleted()
             flash = true
             withAnimation(.easeOut(duration: 0.35)) { flash = false }
@@ -194,6 +196,7 @@ struct MainHoldButton: View {
                 completed = false
                 holdStart = Date()
                 holdProgress = 0
+                successGen.prepare()
                 withAnimation(.linear(duration: AppModel.holdSeconds)) { holdProgress = 1 }
                 startTicks()
             } else {
@@ -212,7 +215,7 @@ struct MainHoldButton: View {
         .accessibilityAction(named: "Плюс один") { model.holdCompleted() }
     }
 
-    /// Мягкий отклик на каждой целой секунде удержания (1 и 2; на 3-й — .medium засчёта).
+    /// Мягкий отклик на каждой целой секунде удержания (1 и 2; на 3-й — .success засчёта).
     private func startTicks() {
         tickTask?.cancel()
         tickTask = Task { @MainActor in

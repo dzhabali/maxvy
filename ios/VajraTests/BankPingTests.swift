@@ -223,7 +223,12 @@ final class BankPingTests: XCTestCase {
         XCTAssertNotNil(c0)
         model.act(.plus5, 3)
         XCTAssertEqual(model.cardText, c0)
+        model.cardHoldDelay = 0.2
         model.holdCompleted()
+        XCTAssertEqual(model.cardText, c0)   // старая цитата остаётся, пока не истекла задержка
+        let changed = expectation(description: "карточка сменилась после задержки")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { changed.fulfill() }
+        wait(for: [changed], timeout: 2)
         XCTAssertNotEqual(model.cardText, c0)
         // удержание — +1 без оценки
         let i = VajraDate.slotIndex(Date()), s = model.slots[i]
