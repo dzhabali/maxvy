@@ -254,7 +254,7 @@
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.8.4</span></span>
+  <span class="app-title">Ваджра-трекер<span class="app-ver">v2.8.5</span></span>
   <button id="undoBtn" class="undo-btn" style="display:none" title="Отменить последнее действие">↶ <span id="undoCnt"></span></button>
   <span class="offline-badge" id="offlineBadge" style="display:none" title="Нет сети — данные сохраняются локально и синхронизируются позже">⚡ оффлайн</span>
   <span class="date-badge" id="dateBadge"></span>
@@ -919,7 +919,7 @@ document.addEventListener('click',e=>{
 document.getElementById('sleepTilBtn').addEventListener('click',()=>{
   ensureToday();
   const ci=curIdx();
-  if(!confirm(`Подтверждаешь? Сон с 0:00 до ${slotTime(ci)} будет отмечен.`)) return;
+  if(!confirm(`Сон до текущего времени\n\nСон с 0:00 до ${slotTime(ci)} будет отмечен. Подтвердить?`)) return;
   pushUndo();
   const slots=dayCache||emptyDay();
   const now=Date.now();

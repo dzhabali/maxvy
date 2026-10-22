@@ -79,9 +79,11 @@ struct TrackerView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { FooterProgress(total: model.total) }
-        .alert("Подтверждаешь?", isPresented: $confirmSleep) {
-            Button("Отметить") { model.sleepTillNow() }
+        .alert("Сон до текущего времени", isPresented: $confirmSleep) {
             Button("Отмена", role: .cancel) {}
+            // defaultAction — выделенная кнопка, чтобы не сливалась с «Отмена»
+            Button("Подтвердить") { model.sleepTillNow() }
+                .keyboardShortcut(.defaultAction)
         } message: { Text("Сон с 0:00 до \(Slots.time(ci)) будет отмечен.") }
         .alert("Сбросить день?", isPresented: $confirmReset) {
             Button("Сбросить", role: .destructive) { model.resetDay() }
