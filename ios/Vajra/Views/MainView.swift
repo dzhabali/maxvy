@@ -1,10 +1,27 @@
 import SwiftUI
+import UIKit
 
 struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var auth: AuthManager
+    /// Телефон горизонтально — compact по высоте: весь экран = кнопка +1.
+    @Environment(\.verticalSizeClass) private var vSize
 
     var body: some View {
+        Group {
+            if vSize == .compact { LandscapeQuickTap() } else { portrait }
+        }
+        .overlay(alignment: .top) { ToastView(text: model.toast) }
+        .overlay { AchievementOverlay() }
+        .onAppear {
+            // демо-скриншот горизонтального режима: -landscape
+            guard ProcessInfo.processInfo.arguments.contains("-landscape"),
+                  let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+        }
+    }
+
+    private var portrait: some View {
         VStack(spacing: 0) {
             TopBar()
             TabsBar()
@@ -29,8 +46,6 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Palette.bg.ignoresSafeArea())
-        .overlay(alignment: .top) { ToastView(text: model.toast) }
-        .overlay { AchievementOverlay() }
     }
 }
 

@@ -7,7 +7,8 @@
 # Номер сборки (CURRENT_PROJECT_VERSION в project.yml) увеличивается на 1 перед каждой загрузкой.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+TOOLS="$(cd "$(dirname "$0")" && pwd)"
+cd "$TOOLS/.."
 
 ASC_KEY_ID="${ASC_KEY_ID:-GTFY4P5UPP}"
 ASC_ISSUER_ID="${ASC_ISSUER_ID:-74224bd7-bbf9-4a2f-a400-0ed839c272bb}"
@@ -23,6 +24,14 @@ cur=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*"?([0-9]+)"?.*
 next=$((cur + 1))
 sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*)\"?[0-9]+\"?/\1\"${next}\"/" project.yml
 echo "build ${cur} → ${next}"
+
+# 1б. версия +1 к младшей цифре: 1.0 → 1.1 → 1.2 — её видно в TestFlight. Своя: VERSION=2.0 tools/upload.sh
+#     (не 1.01: Apple сравнивает числами, 1.01 = 1.1 и билд отклонит)
+curv=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9]+\.[0-9]+)"?.*/\1/p' project.yml | head -1)
+[ -n "$curv" ] || { echo "не нашёл MARKETING_VERSION в project.yml" >&2; exit 1; }
+newv="${VERSION:-${curv%.*}.$(( ${curv#*.} + 1 ))}"
+sed -i '' -E "s/^([[:space:]]*MARKETING_VERSION:[[:space:]]*)\"?[0-9.]+\"?/\1\"${newv}\"/" project.yml
+echo "version ${curv} → ${newv}"
 
 # 2. проект
 xcodegen generate
@@ -49,3 +58,13 @@ env PATH=/usr/bin:/bin:/usr/sbin:/sbin xcodebuild -exportArchive -archivePath "$
   "${AUTH[@]}"
 
 echo "загружено: v$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9.]+)"?.*/\1/p' project.yml | head -1) (${next})"
+
+# 5. «Что нового» в TestFlight: NOTES="…" tools/upload.sh — фоном ждёт, пока Apple обработает билд, и ставит текст
+if [ -n "${NOTES:-}" ]; then
+  if python3 -c "import jwt" 2>/dev/null; then
+    nohup python3 "$TOOLS/../../../shamatimer/ios/tools/asc.py" whats-new com.maxdzhabali.vajra "$next" "$NOTES" > build/whats-new.log 2>&1 &
+    echo "«Что нового» — фоном (до 60 мин), лог build/whats-new.log"
+  else
+    echo "нет PyJWT — «Что нового» поставить с MacBook: asc.py whats-new com.maxdzhabali.vajra $next \"…\""
+  fi
+fi

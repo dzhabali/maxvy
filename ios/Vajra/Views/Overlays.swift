@@ -3,6 +3,8 @@ import SwiftUI
 /// Ачивки 25 / 50 / 75 / 100 (Кхечара) — один раз за день, в момент достижения.
 struct AchievementOverlay: View {
     @EnvironmentObject private var model: AppModel
+    /// Горизонтально по высоте ~370 pt — карточку ужимаем, чтобы влезла.
+    @Environment(\.verticalSizeClass) private var vSize
 
     var body: some View {
         ZStack {
@@ -12,9 +14,9 @@ struct AchievementOverlay: View {
                     Text(m.label).font(.system(size: 11)).kerning(1.6).foregroundStyle(Palette.text3).padding(.bottom, 4)
                     Text("\(m.n)").font(.system(size: 52, weight: .bold)).foregroundStyle(Color(hex: m.colorHex)).padding(.bottom, 3)
                     Group {
-                        if m.khechara { KhecharaScene() } else { MilestoneGem(colorHex: m.colorHex) }
+                        if m.khechara { KhecharaScene(height: vSize == .compact ? 100 : 210) } else { MilestoneGem(colorHex: m.colorHex) }
                     }
-                    .padding(.vertical, 12)
+                    .padding(.vertical, vSize == .compact ? 6 : 12)
                     Text(m.sub).font(.system(size: 16, weight: .medium)).foregroundStyle(Palette.text).padding(.bottom, 20)
                     Button { model.achievement = nil } label: {
                         Text("Продолжить").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
@@ -23,11 +25,11 @@ struct AchievementOverlay: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 24).padding(.top, 28).padding(.bottom, 22)
+                .padding(.horizontal, 24).padding(.top, vSize == .compact ? 16 : 28).padding(.bottom, vSize == .compact ? 14 : 22)
                 .frame(maxWidth: 320)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 24))
                 .shadow(color: .black.opacity(0.2), radius: 30, y: 20)
-                .padding(20)
+                .padding(vSize == .compact ? 8 : 20)
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
@@ -67,6 +69,7 @@ struct MilestoneGem: View {
 
 /// Сцена Кхечары: ночное небо, мерцающие звёзды, свечение, надпись.
 struct KhecharaScene: View {
+    var height: CGFloat = 210
     @State private var glow = false
     private let stars: [(CGFloat, CGFloat, CGFloat)] = (0..<45).map { i in
         let a = Double(i) * 12.9898, b = Double(i) * 78.233
@@ -101,7 +104,7 @@ struct KhecharaScene: View {
                 .position(x: g.size.width / 2, y: g.size.height - 28)
             }
         }
-        .frame(height: 210)
+        .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .onAppear { withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) { glow = true } }
     }

@@ -121,10 +121,74 @@ struct DateNav: View {
     }
 }
 
+/// Срез на момент тика TimelineView — общий для портретной кнопки и горизонтального режима.
+struct HoldTick {
+    let now: Date
+    let secs: Int
+    var over: Bool { secs < 0 }
+    /// Доля кольца: до 3:00 — остаток, после — перебор (полное кольцо через 3 мин сверх).
+    var ratio: Double { over ? min(Double(-secs) / AppModel.timerDuration, 1) : Double(secs) / AppModel.timerDuration }
+    let ci: Int
+    let hint: String
+}
+
 /// Главная кнопка: таймер 3:00 слева, счёт текущего слота справа; +1 — только удержанием 3 с.
-/// Заливку удержания ведёт анимация SwiftUI (holdProgress 0→1), TimelineView — только таймер и отсчёт.
 struct MainHoldButton: View {
     @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        HoldSurface(cornerRadius: 24) { t in
+            HStack(spacing: 12) {
+                TimerRing(t: t, lineWidth: 9, gem: 22, value: 22, unit: 12, slot: 10)
+                    .frame(width: 104, height: 104)
+                    .padding(8)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(model.slots[t.ci].count)")
+                        .font(.system(size: 72, weight: .ultraLight)).foregroundStyle(.white)
+                        .kerning(-2).lineLimit(1).minimumScaleFactor(0.5)
+                    Text(t.hint).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 16)
+        }
+    }
+}
+
+/// Кольцо таймера: камень, «2:59» / «+12:34» / «+100 мин», под ним время слота.
+struct TimerRing: View {
+    let t: HoldTick
+    let lineWidth: CGFloat
+    let gem: CGFloat
+    let value: CGFloat
+    let unit: CGFloat
+    let slot: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.15), lineWidth: lineWidth)
+            Circle().trim(from: 0, to: t.ratio)
+                .stroke(Color.white.opacity(t.over ? 0.9 : 0.85), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 3) {
+                GemShapeView(size: gem)
+                let tl = AppModel.timerLabel(t.secs)
+                (Text(tl.value).font(.system(size: value, weight: .bold).monospacedDigit())
+                    + Text(tl.unit.map { " " + $0 } ?? "").font(.system(size: unit, weight: .semibold)))
+                    .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                Text(Slots.time(t.ci)).font(.system(size: slot)).foregroundStyle(.white.opacity(0.5))
+            }
+        }
+    }
+}
+
+/// Поверхность удержания: +1 — только удержанием 3 с, заливка, отсчёт, haptic, фон мятный/малиновый по таймеру.
+/// Заливку ведёт анимация SwiftUI (holdProgress 0→1), TimelineView — только таймер и отсчёт.
+struct HoldSurface<Content: View>: View {
+    @EnvironmentObject private var model: AppModel
+    let cornerRadius: CGFloat
+    let content: (HoldTick) -> Content
     @State private var holdStart: Date?
     @State private var completed = false
     @State private var holdProgress: CGFloat = 0
@@ -133,40 +197,16 @@ struct MainHoldButton: View {
     /// Засчёт — отдельный узнаваемый отклик (двойной «успех»), не как тики по секундам.
     @State private var successGen = UINotificationFeedbackGenerator()
 
+    init(cornerRadius: CGFloat = 24, @ViewBuilder content: @escaping (HoldTick) -> Content) {
+        self.cornerRadius = cornerRadius
+        self.content = content
+    }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.2)) { ctx in
             let now = ctx.date
-            let secs = model.timerSeconds(at: now)
-            let over = secs < 0
-            let ratio: Double = over ? min(Double(-secs) / AppModel.timerDuration, 1) : Double(secs) / AppModel.timerDuration
-            let ci = model.currentIndex(at: now)   // от часов TimelineView: слот меняется ровно на границе
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle().stroke(Color.white.opacity(0.15), lineWidth: 9)
-                    Circle().trim(from: 0, to: ratio)
-                        .stroke(Color.white.opacity(over ? 0.9 : 0.85), style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    VStack(spacing: 3) {
-                        GemShapeView(size: 22)
-                        let tl = AppModel.timerLabel(secs)
-                        (Text(tl.value).font(.system(size: 22, weight: .bold).monospacedDigit())
-                            + Text(tl.unit.map { " " + $0 } ?? "").font(.system(size: 12, weight: .semibold)))
-                            .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
-                        Text(Slots.time(ci)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
-                    }
-                }
-                .frame(width: 104, height: 104)
-                .padding(8)
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(model.slots[ci].count)")
-                        .font(.system(size: 72, weight: .ultraLight)).foregroundStyle(.white)
-                        .kerning(-2).lineLimit(1).minimumScaleFactor(0.5)
-                    Text(hint(now)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 16)
+            // слот — от часов TimelineView: меняется ровно на границе
+            content(HoldTick(now: now, secs: model.timerSeconds(at: now), ci: model.currentIndex(at: now), hint: hint(now)))
         }
         // заливка — вне TimelineView (под текстом, над фоном): её анимацию тики не перебивают
         .background {
@@ -182,8 +222,8 @@ struct MainHoldButton: View {
                 Rectangle().fill(holdStart != nil ? Palette.crimson2 : (over ? Palette.crimson : Palette.mint))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         .onLongPressGesture(minimumDuration: AppModel.holdSeconds, maximumDistance: 40) {
             completed = true
             holdStart = nil
