@@ -25,6 +25,10 @@ enum Palette {
     static let mint = Color(hex: 0x0d4a3a)
     static let crimson = Color(hex: 0xc0185a)
     static let crimson2 = Color(hex: 0x96124a)
+    /// Фон кнопки, пока идут 3 мин таймера (с 13.11.2026 вместо мятного): серый. Красный (crimson) — 3 мин прошли, пора вспомнить.
+    static let calm = Color(hex: 0x5b6470)
+    /// Серый под пальцем (удержание до конца 3 мин).
+    static let calm2 = Color(hex: 0x434a54)
 
     static let greenDark = Color(hex: 0x166534)
     static let greenBg = Color(hex: 0xdcfce7)

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Режим «Авто»: весь экран — красная кнопка с таймером 3:00 по центру, +1 — обычным тапом в любое место (без удержания 3 с).
+/// Режим «Авто»: весь экран — кнопка с таймером 3:00 по центру (серая, пока идут 3 мин, красная — когда прошли), +1 — обычным тапом в любое место (без удержания 3 с).
 /// Сверху — большая кнопка выхода. Тапы чаще раза в секунду не считаются (`AppModel.carTapCooldown`).
 /// Экран в этом режиме не гаснет; ачивка, если случилась, покажется после выхода.
 struct CarModeView: View {
@@ -26,7 +26,10 @@ struct CarModeView: View {
             .accessibilityIdentifier("carExit")
 
             ZStack {
-                Palette.crimson
+                // как на главной кнопке: серый, пока идут 3 мин, красный — 3 мин прошли
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    model.timerSeconds(at: ctx.date) < 0 ? Palette.crimson : Palette.calm
+                }
                 // таймер 3:00 по центру, как на главной кнопке; касания не забирает
                 GeometryReader { g in
                     let ring = min(g.size.width, g.size.height) * 0.72
@@ -51,7 +54,11 @@ struct CarModeView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { tap() }
         }
-        .background(Palette.crimson.ignoresSafeArea())
+        .background {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                (model.timerSeconds(at: ctx.date) < 0 ? Palette.crimson : Palette.calm).ignoresSafeArea()
+            }
+        }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .onAppear { successGen.prepare() }

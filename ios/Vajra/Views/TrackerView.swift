@@ -185,7 +185,7 @@ struct TimerRing: View {
     }
 }
 
-/// Поверхность удержания: +1 — только удержанием 3 с, заливка, отсчёт, haptic, фон мятный/малиновый по таймеру.
+/// Поверхность удержания: +1 — только удержанием 3 с, заливка, отсчёт, haptic, фон серый/красный по таймеру.
 /// Заливку ведёт анимация SwiftUI (holdProgress 0→1), TimelineView — только таймер и отсчёт.
 ///
 /// Засчёт идёт от СВОЕГО таймера, запущенного в момент касания вместе с заливкой: полоса дошла до конца —
@@ -229,7 +229,9 @@ struct HoldSurface<Content: View>: View {
         .background {
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 let over = model.timerSeconds(at: ctx.date) < 0
-                Rectangle().fill(holdStart != nil ? Palette.crimson2 : (over ? Palette.crimson : Palette.mint))
+                // серый, пока идут 3 мин; красный — 3 мин прошли (пора вспомнить); под пальцем — темнее
+                Rectangle().fill(over ? (holdStart != nil ? Palette.crimson2 : Palette.crimson)
+                                      : (holdStart != nil ? Palette.calm2 : Palette.calm))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
