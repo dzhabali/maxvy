@@ -39,11 +39,13 @@ final class VajraSettings: ObservableObject {
 
 /// Экран не гаснет, пока Ваджра на переднем плане и включено «Не гасить экран».
 enum IdleTimer {
+    /// В режиме «Авто» экран не гаснет независимо от настройки.
+    @MainActor static var carMode = false
     static func disabled(active: Bool, keepAwake: Bool) -> Bool { active && keepAwake }
 
     @MainActor
     static func apply(active: Bool, keepAwake: Bool) {
-        UIApplication.shared.isIdleTimerDisabled = disabled(active: active, keepAwake: keepAwake)
+        UIApplication.shared.isIdleTimerDisabled = disabled(active: active, keepAwake: keepAwake || carMode)
     }
 }
 

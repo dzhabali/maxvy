@@ -69,6 +69,7 @@ targets:
     scheme:
       testTargets:
         - VajraTests
+        - VajraUITests
 
   VajraWidgets:
     type: app-extension
@@ -112,3 +113,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxdzhabali.vajra.tests
         GENERATE_INFOPLIST_FILE: YES
+
+  VajraUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: VajraUITests
+    dependencies:
+      - target: Vajra
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxdzhabali.vajra.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Vajra

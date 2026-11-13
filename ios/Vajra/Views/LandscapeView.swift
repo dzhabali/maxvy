@@ -44,6 +44,12 @@ struct LandscapeQuickTap: View {
                 .overlay(alignment: .bottom) { dayBar }
             }
             .ignoresSafeArea()
+            // вход в «Авто»: кнопка поверх поверхности удержания забирает тап себе
+            .overlay(alignment: .topTrailing) {
+                CarModeButton(size: 20).foregroundStyle(.white.opacity(0.8))
+                    .padding(14).contentShape(Rectangle())
+                    .padding(.top, 4).padding(.trailing, max(g.safeAreaInsets.trailing, 12))
+            }
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)

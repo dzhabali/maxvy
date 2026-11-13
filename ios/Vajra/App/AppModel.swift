@@ -31,6 +31,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedDate: String
     @Published private(set) var slots: [Slot]
     @Published var histOpen = false
+    /// Палец держит главную кнопку — прокрутка трекера на это время выключена (не крадёт удержание).
+    @Published var holding = false
+    /// Режим «Авто»: весь экран — красная кнопка, +1 обычным тапом (без удержания 3 с).
+    @Published var carMode = false { didSet { if carMode != oldValue { IdleTimer.carMode = carMode; IdleTimer.apply(active: true, keepAwake: settings.keepAwake) } } }
+    private var lastCarTap: Date?
+    /// В «Авто» тапы чаще раза в секунду не считаются — защита от дребезга и двойного касания на кочке.
+    static let carTapCooldown: TimeInterval = 1
     @Published var sleepTillDone = false
     @Published var achievement: Milestone?
     @Published private(set) var toast: String?
@@ -360,6 +367,15 @@ final class AppModel: ObservableObject {
         DiagLog.log("holdCompleted", "slot \(Slots.time(i)) total \(total)")
         advanceCardLater()
         startTimer(now)
+    }
+
+    /// Тап в режиме «Авто». true — засчитано (+1), false — отсечено паузой.
+    @discardableResult
+    func carTap(at now: Date = Date()) -> Bool {
+        if let l = lastCarTap, now.timeIntervalSince(l) < Self.carTapCooldown { return false }
+        lastCarTap = now
+        holdCompleted()
+        return true
     }
 
     private func setFields(_ edits: [(i: Int, fields: SetFields)]) {

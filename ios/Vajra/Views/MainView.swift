@@ -9,11 +9,14 @@ struct MainView: View {
 
     var body: some View {
         Group {
-            if vSize == .compact { LandscapeQuickTap() } else { portrait }
+            if model.carMode { CarModeView() }
+            else if vSize == .compact { LandscapeQuickTap() } else { portrait }
         }
-        .overlay(alignment: .top) { ToastView(text: model.toast) }
-        .overlay { AchievementOverlay() }
+        // в «Авто» поверх ничего: ни тостов, ни ачивок (ачивка покажется после выхода)
+        .overlay(alignment: .top) { if !model.carMode { ToastView(text: model.toast) } }
+        .overlay { if !model.carMode { AchievementOverlay() } }
         .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-carMode") { model.carMode = true }
             // демо-скриншот горизонтального режима: -landscape
             guard ProcessInfo.processInfo.arguments.contains("-landscape"),
                   let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
@@ -86,6 +89,7 @@ struct TopBar: View {
                     .background(Palette.amberBg, in: Capsule())
                     .overlay(Capsule().stroke(Palette.amberBorder))
             }
+            CarModeButton().foregroundStyle(Palette.text2)
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape").font(.system(size: 15)).foregroundStyle(Palette.text2)
             }

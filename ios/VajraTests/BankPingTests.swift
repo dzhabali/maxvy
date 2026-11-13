@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Vajra
 
 /// Мешок, расписание пингов, ответ на пинг, карточка. Строки — выдуманные («тест N»).
@@ -120,6 +121,27 @@ final class BankPingTests: XCTestCase {
         model.holdCompleted()
         XCTAssertGreaterThan(VajraTimer.start(defaults: defaults), 0)
         XCTAssertNotNil(model.timerStart)
+    }
+
+    /// «Авто»: тап = +1, тапы чаще раза в секунду отсекаются; экран не гаснет при выключенной настройке.
+    @MainActor
+    func testCarModeTapCooldownAndIdle() {
+        let settings = VajraSettings(defaults: defaults)
+        settings.keepAwake = false
+        let model = AppModel(store: DayStore(dir: dir.appendingPathComponent("days")), demo: true,
+                             bank: BankStore(dir: dir, defaults: defaults), settings: settings)
+        let t0 = Date(), start = model.total
+        XCTAssertTrue(model.carTap(at: t0))
+        XCTAssertFalse(model.carTap(at: t0.addingTimeInterval(0.4)))
+        XCTAssertEqual(model.total, start + 1)
+        XCTAssertTrue(model.carTap(at: t0.addingTimeInterval(1.1)))
+        XCTAssertEqual(model.total, start + 2)
+        XCTAssertNotNil(model.timerStart)
+
+        model.carMode = true
+        XCTAssertTrue(UIApplication.shared.isIdleTimerDisabled)
+        model.carMode = false
+        XCTAssertFalse(UIApplication.shared.isIdleTimerDisabled)
     }
 
     @MainActor

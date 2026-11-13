@@ -78,6 +78,8 @@ struct TrackerView: View {
                 Spacer(minLength: 16)
             }
         }
+        // пока палец на главной кнопке, прокрутка выключена: сдвиг пальца на пару точек не отменяет удержание
+        .scrollDisabled(model.holding)
         .safeAreaInset(edge: .bottom, spacing: 0) { FooterProgress(total: model.total) }
         .alert("Сон до текущего времени", isPresented: $confirmSleep) {
             Button("Отмена", role: .cancel) {}
@@ -185,6 +187,11 @@ struct TimerRing: View {
 
 /// Поверхность удержания: +1 — только удержанием 3 с, заливка, отсчёт, haptic, фон мятный/малиновый по таймеру.
 /// Заливку ведёт анимация SwiftUI (holdProgress 0→1), TimelineView — только таймер и отсчёт.
+///
+/// Засчёт идёт от СВОЕГО таймера, запущенного в момент касания вместе с заливкой: полоса дошла до конца —
+/// +1 засчитан. Системный onLongPressGesture внутри ScrollView иногда не вызывал perform, хотя палец держали
+/// все 3 с (полоса дошла, засчёта нет — жалоба 13.11.2026). Теперь perform — лишь перестраховка, а отпускание
+/// после ≥ 2,9 с тоже засчитывает. Двойного засчёта нет: флаг `completed`.
 struct HoldSurface<Content: View>: View {
     @EnvironmentObject private var model: AppModel
     let cornerRadius: CGFloat
@@ -193,9 +200,12 @@ struct HoldSurface<Content: View>: View {
     @State private var completed = false
     @State private var holdProgress: CGFloat = 0
     @State private var flash = false
-    @State private var tickTask: Task<Void, Never>?
+    @State private var holdTask: Task<Void, Never>?
     /// Засчёт — отдельный узнаваемый отклик (двойной «успех»), не как тики по секундам.
     @State private var successGen = UINotificationFeedbackGenerator()
+
+    /// Отпустил чуть раньше конца полосы (≤ 0,1 с) — всё равно засчёт: глазом это «дошла до конца».
+    static var releaseGrace: Double { 0.1 }
 
     init(cornerRadius: CGFloat = 24, @ViewBuilder content: @escaping (HoldTick) -> Content) {
         self.cornerRadius = cornerRadius
@@ -224,55 +234,66 @@ struct HoldSurface<Content: View>: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .onLongPressGesture(minimumDuration: AppModel.holdSeconds, maximumDistance: 40) {
-            completed = true
-            holdStart = nil
-            stopTicks()
-            successGen.notificationOccurred(.success)
-            model.holdCompleted()
-            flash = true
-            withAnimation(.easeOut(duration: 0.35)) { flash = false }
-            withAnimation(.easeOut(duration: 0.25)) { holdProgress = 0 }
+        // minimumDuration с запасом: засчитывает наш таймер; системный — только если наш почему-то не успел
+        .onLongPressGesture(minimumDuration: AppModel.holdSeconds, maximumDistance: 60) {
+            complete()
         } onPressingChanged: { pressing in
-            if pressing {
-                completed = false
-                holdStart = Date()
-                holdProgress = 0
-                successGen.prepare()
-                withAnimation(.linear(duration: AppModel.holdSeconds)) { holdProgress = 1 }
-                startTicks()
-            } else {
-                stopTicks()
-                if let s = holdStart, !completed {
-                    let held = Date().timeIntervalSince(s)
-                    if held > 0.15 && held < AppModel.holdSeconds - 0.05 { model.showToast("Держи 3 секунды") }
-                    withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
-                }
-                holdStart = nil
-            }
+            if pressing { begin() } else { end() }
         }
-        .onDisappear { stopTicks() }
+        .onDisappear { holdTask?.cancel(); holdTask = nil; if holdStart != nil { model.holding = false } }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Вспомнил +1, удерживай 3 секунды")
+        .accessibilityValue("за день \(model.isToday ? model.total : 0)")
+        .accessibilityIdentifier("hold")
         .accessibilityAction(named: "Плюс один") { model.holdCompleted() }
     }
 
-    /// Мягкий отклик на каждой целой секунде удержания (1 и 2; на 3-й — .success засчёта).
-    private func startTicks() {
-        tickTask?.cancel()
-        tickTask = Task { @MainActor in
+    private func begin() {
+        let start = Date()
+        completed = false
+        holdStart = start
+        holdProgress = 0
+        model.holding = true
+        successGen.prepare()
+        withAnimation(.linear(duration: AppModel.holdSeconds)) { holdProgress = 1 }
+        holdTask?.cancel()
+        // мягкий тик на 1-й и 2-й секунде, на 3-й — засчёт (.success); сроки — от момента касания, без накопления сдвига
+        holdTask = Task { @MainActor in
             let gen = UIImpactFeedbackGenerator(style: .soft)
             gen.prepare()
-            for _ in 1..<Int(AppModel.holdSeconds) {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                gen.impactOccurred()
-                gen.prepare()
+            let n = Int(AppModel.holdSeconds)
+            for k in 1...n {
+                let wait = start.addingTimeInterval(Double(k)).timeIntervalSinceNow
+                if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+                guard !Task.isCancelled, holdStart == start else { return }
+                if k < n { gen.impactOccurred(); gen.prepare() } else { complete() }
             }
         }
     }
 
-    private func stopTicks() { tickTask?.cancel(); tickTask = nil }
+    private func end() {
+        holdTask?.cancel(); holdTask = nil
+        model.holding = false
+        if let s = holdStart, !completed {
+            let held = Date().timeIntervalSince(s)
+            if held >= AppModel.holdSeconds - Self.releaseGrace { complete(); return }
+            if held > 0.15 { model.showToast("Держи 3 секунды") }
+            withAnimation(.easeOut(duration: 0.2)) { holdProgress = 0 }
+        }
+        holdStart = nil
+    }
+
+    private func complete() {
+        guard !completed else { return }
+        completed = true
+        holdStart = nil
+        holdTask?.cancel(); holdTask = nil
+        successGen.notificationOccurred(.success)
+        model.holdCompleted()
+        flash = true
+        withAnimation(.easeOut(duration: 0.35)) { flash = false }
+        withAnimation(.easeOut(duration: 0.25)) { holdProgress = 0 }
+    }
 
     private func hint(_ now: Date) -> String {
         guard let s = holdStart else { return "держи 3 сек — вспомни" }
