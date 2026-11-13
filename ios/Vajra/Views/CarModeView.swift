@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Режим «Авто»: весь экран — красная кнопка без текста, +1 — обычным тапом в любое место (без удержания 3 с).
+/// Режим «Авто»: весь экран — красная кнопка с таймером 3:00 по центру, +1 — обычным тапом в любое место (без удержания 3 с).
 /// Сверху — большая кнопка выхода. Тапы чаще раза в секунду не считаются (`AppModel.carTapCooldown`).
 /// Экран в этом режиме не гаснет; ачивка, если случилась, покажется после выхода.
 struct CarModeView: View {
@@ -27,6 +27,18 @@ struct CarModeView: View {
 
             ZStack {
                 Palette.crimson
+                // таймер 3:00 по центру, как на главной кнопке; касания не забирает
+                GeometryReader { g in
+                    let ring = min(g.size.width, g.size.height) * 0.72
+                    TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+                        TimerRing(t: HoldTick(now: ctx.date, secs: model.timerSeconds(at: ctx.date),
+                                              ci: model.currentIndex(at: ctx.date), hint: ""),
+                                  lineWidth: 14, gem: ring * 0.14, value: ring * 0.2, unit: ring * 0.09, slot: ring * 0.07)
+                            .frame(width: ring, height: ring)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .allowsHitTesting(false)
                 Color.white.opacity(flash ? 0.45 : 0)
             }
             .contentShape(Rectangle())
