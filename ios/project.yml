@@ -16,8 +16,8 @@ settings:
     # Team ID аккаунта Diamond Wisdom Group OU (не секрет)
     DEVELOPMENT_TEAM: F8H3UK3UF7
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "1.3"
+    CURRENT_PROJECT_VERSION: "15"
 
 targets:
   Vajra:
